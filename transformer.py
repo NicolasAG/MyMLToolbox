@@ -434,3 +434,4 @@ if __name__ == '__main__':
     # Test model production
     tmp_model = make_model(10, 10, 2)
     print(tmp_model)
+    print("it builds!")
