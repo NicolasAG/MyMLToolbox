@@ -88,3 +88,54 @@ class EncoderDecoder(nn.Module):
         """
         return self.decode(self.encode(src, src_mask),
                            src_mask, tgt, tgt_mask)
+
+
+def subsequent_mask(size: int):
+    """
+    - We also modify the decoder stack to prevent positions
+    from attending to subsequent positions.
+    - This masking, combined with fact that the output embeddings are
+    offset by one position, ensures that the predictions for
+    position i can depend only on the known outputs at positions
+    less than i.
+    """
+    att_shape = (1, size, size)
+    # zero-out elements lower than the 1st diagonal
+    mask = np.tril(np.ones(att_shape).astype('uint8'))
+    '''
+    ex with size = 5:
+    array([[[1, 0, 0, 0, 0],
+            [1, 1, 0, 0, 0],
+            [1, 1, 1, 0, 0],
+            [1, 1, 1, 1, 0],
+            [1, 1, 1, 1, 1]]], dtype=uint8)
+
+    the attention mask shows the position each tgt word (row)
+    is allowed to look at (column)
+    '''
+    return torch.from_numpy(mask)
+
+
+class Batch:
+    """
+    Object for holding a batch of data with mask during training.
+    - We define a batch object that holds the src and target
+    sentences for training, as well as constructing the masks.
+    """
+    def __init__(self, src, tgt=None, pad=0):
+        self.src = src
+        self.src_mask = (src != pad).unsqueeze(-2)
+        if tgt:
+            self.tgt = tgt[:, :-1]
+            self.tgt_y = tgt[:, 1:]
+            self.tgt_mask = self.make_std_mask(self.tgt, pad)
+            self.n_tokens = (self.tgt_y != pad).data.sum()
+
+    @staticmethod
+    def make_std_mask(tgt, pad):
+        """
+        Create a mask to hide padding and future words.
+        """
+        tgt_mask = (tgt != pad).unsqueeze(-2)
+        tgt_mask = tgt_mask & subsequent_mask(tgt_mask.size(1)).type_as(tgt_mask)
+        return tgt_mask

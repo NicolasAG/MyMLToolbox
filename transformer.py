@@ -337,32 +337,6 @@ class DecoderLayer(nn.Module):
         return self.sublayer[2](x, self.feed_forward)
 
 
-def subsequence_mask(size: int):
-    """
-    - We also modify the self-attention sub-layer in the decoder
-    stack to prevent positions from attending to subsequent positions.
-    - This masking, combined with fact that the output embeddings are
-    offset by one position, ensures that the predictions for
-    position i can depend only on the known outputs at positions
-    less than i.
-    """
-    att_shape = (1, size, size)
-    # zero-out elements lower than the 1st diagonal
-    mask = np.tril(np.ones(att_shape).astype('uint8'))
-    '''
-    ex with size = 5:
-    array([[[1, 0, 0, 0, 0],
-            [1, 1, 0, 0, 0],
-            [1, 1, 1, 0, 0],
-            [1, 1, 1, 1, 0],
-            [1, 1, 1, 1, 1]]], dtype=uint8)
-    
-    the attention mask shows the position each tgt word (row)
-    is allowed to look at (column)
-    '''
-    return torch.from_numpy(mask)
-
-
 """
 BUILD MODEL WITH SPECIFIC HYPER PARAMETERS
 """
