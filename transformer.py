@@ -17,8 +17,7 @@ import copy
 from utils import \
     LayerNorm,\
     clones,\
-    scaled_dot_prod_attention,\
-    to_gpu
+    scaled_dot_prod_attention
 
 from encdec import subsequent_mask
 
@@ -464,10 +463,10 @@ def make_model(src_vocab: int, tgt_vocab: int, n: int,
         Generator
 
     c = copy.deepcopy
-    attn = to_gpu(MultiHeadAttention(h, d_model, dropout))
-    ff = to_gpu(PositionwiseFeedForward(d_model, d_ff, dropout))
-    position = to_gpu(PositionalEncoding(d_model, dropout))
-    model = to_gpu(EncoderDecoder(
+    attn = MultiHeadAttention(h, d_model, dropout)
+    ff = PositionwiseFeedForward(d_model, d_ff, dropout)
+    position = PositionalEncoding(d_model, dropout)
+    model = EncoderDecoder(
         Encoder(EncoderLayer(
             d_model, c(attn), c(ff), dropout
         ), n=n),
@@ -477,7 +476,7 @@ def make_model(src_vocab: int, tgt_vocab: int, n: int,
         nn.Sequential(Embeddings(d_model, src_vocab), c(position)),
         nn.Sequential(Embeddings(d_model, tgt_vocab), c(position)),
         Generator(d_model, tgt_vocab)
-    ))
+    )
 
     # This was important from their code.
     # initialize parameters with Glorot / fan_avg.

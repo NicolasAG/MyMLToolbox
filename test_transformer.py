@@ -3,21 +3,16 @@ Script followed from `The Annotated Transformer`
 from Harvard NLP group
 http://nlp.seas.harvard.edu/2018/04/03/attention.html#training
 """
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-
 import os
 
 import numpy as np
 import torch
-import torch.nn as nn
 import time
 import seaborn
 seaborn.set_context(context='talk')
 
-from transformer import make_model, NoamOpt, LabelSmoothing
 from encdec import Batch, subsequent_mask
+from transformer import make_model, NoamOpt, LabelSmoothing
 
 
 """
@@ -155,8 +150,6 @@ def greedy_decode(p_model, src, src_mask, max_len, start_symbol):
 
 if __name__ == '__main__':
 
-    print("Hello world!!!")
-
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # use gpu 1
 
@@ -164,11 +157,12 @@ if __name__ == '__main__':
     vocab_size = 11
     criterion = LabelSmoothing(size=vocab_size, padding_idx=0, smoothing=0.0)
     model = make_model(vocab_size, vocab_size, 2)  # model with same src_vocab and tgt_vocab
-    #if torch.cuda.is_available:
-    #    print("cuda available!! put model on GPU")
-    #    model.cuda()
-    #else:
-    #    print("cuda not available :(")
+
+    # if torch.cuda.is_available:
+    #     print("cuda available!! put model on GPU")
+    #     model.cuda()
+    # else:
+    #     print("cuda not available :(")
 
     # print(model)
     print("model built!")
