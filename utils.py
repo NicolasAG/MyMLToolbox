@@ -11,6 +11,12 @@ def to_tensor(x, tt=torch.Tensor, requires_grad=False):
         return tt(x, requires_grad=requires_grad)
 
 
+def to_gpu(x):
+    if torch.cuda.is_available():
+        x.cuda()
+    return x
+
+
 def clones(module, n):
     """
     Produces N identical layers

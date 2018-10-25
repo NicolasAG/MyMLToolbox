@@ -164,11 +164,11 @@ if __name__ == '__main__':
     vocab_size = 11
     criterion = LabelSmoothing(size=vocab_size, padding_idx=0, smoothing=0.0)
     model = make_model(vocab_size, vocab_size, 2)  # model with same src_vocab and tgt_vocab
-    if torch.cuda.is_available:
-        print("cuda available!! put model on GPU")
-        model.cuda()
-    else:
-        print("cuda not available :(")
+    #if torch.cuda.is_available:
+    #    print("cuda available!! put model on GPU")
+    #    model.cuda()
+    #else:
+    #    print("cuda not available :(")
 
     # print(model)
     print("model built!")
