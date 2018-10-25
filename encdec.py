@@ -1,3 +1,5 @@
+import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -73,14 +75,14 @@ class EncoderDecoder(nn.Module):
         """
         Encodes source tokens into a context
         """
-        return self.encoder(self.src_embed(src), src_mask)
+        return self.encoder.forward(self.src_embed(src), src_mask)
 
     def decode(self, context, src_mask, tgt, tgt_mask):
         """
         Decodes context
         """
-        return self.decoder(self.tgt_embed(tgt), context,
-                            src_mask, tgt_mask)
+        return self.decoder.forward(self.tgt_embed(tgt), context,
+                                    src_mask, tgt_mask)
 
     def forward(self, src, tgt, src_mask, tgt_mask):
         """
@@ -125,7 +127,7 @@ class Batch:
     def __init__(self, src, tgt=None, pad=0):
         self.src = src
         self.src_mask = (src != pad).unsqueeze(-2)
-        if tgt:
+        if tgt is not None:
             self.tgt = tgt[:, :-1]
             self.tgt_y = tgt[:, 1:]
             self.tgt_mask = self.make_std_mask(self.tgt, pad)

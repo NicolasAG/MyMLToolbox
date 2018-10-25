@@ -7,6 +7,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+import os
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -14,12 +16,9 @@ import time
 import seaborn
 seaborn.set_context(context='talk')
 
-from transformer import make_model
-from encdec import Batch
+from transformer import make_model, NoamOpt, LabelSmoothing
+from encdec import Batch, subsequent_mask
 
-model = make_model(10, 10, 2)
-# print(model)
-print("model built!")
 
 """
 - We create a generic training and scoring function to keep
@@ -29,7 +28,7 @@ parameter updates.
 """
 
 
-def run_epoch(data_iter, model, loss_compute):
+def run_epoch(data_iter, p_model, loss_compute):
     """
     Standard training and logging function
     """
@@ -38,8 +37,8 @@ def run_epoch(data_iter, model, loss_compute):
     total_loss = 0
     tokens = 0
     for i, batch in enumerate(data_iter):
-        out = model(batch.src, batch.tgt,
-                    batch.src_mask, batch.tgt_mask)
+        out = p_model(batch.src, batch.tgt,
+                      batch.src_mask, batch.tgt_mask)
         loss = loss_compute(out, batch.tgt_y, batch.n_tokens)
         total_loss += loss
         total_tokens += batch.n_tokens
@@ -82,143 +81,135 @@ def batch_size_fn(new, count):
 
 
 """
-Optimizer:
-----------
-- We used Adam with beta_1 = 0.9, beta_2=0.98 and eps=1e-9
-- We varied the learning rate over the course of training:
---> lr = d_model^(-0.5) * min{step_num^(-0.5), step_num*warmup_steps^(-1.5)}
-- This corresponds to increasing the learning rate linearly
-for the first warmup_steps training steps, and decreasing it
-thereafter proportionally to the inverse square root of the step number.
-- We used warmup_steps = 4000.
+Synthetic data
+"""
+# We can begin by trying out a simple copy-task.
+# Given a random set of input symbols from a small vocab,
+#  the goal is to generate back those same symbols.
 
-==> NOTE: This part is very important. Need to train with this
-setup of the model
+
+def data_gen(v, batch, n_batches):
+    """
+    Generate random data for a src-tgt copy task
+    :param v: size of vocabulary
+    :param batch: batch size
+    :param n_batches: number of batches
+    """
+    for i in range(n_batches):
+        data = torch.from_numpy(np.random.randint(1, v, size=(batch, 10)))
+        data[:, 0] = 1  # all examples starts with a '1'
+        yield Batch(data, data, 0)  # source & target is the same data, pad = 0
+
+
+"""
+Loss Computation
 """
 
 
-class NoamOpt:
+class SimpleLossCompute:
     """
-    Optimizer wrapper that implements rate.
+    A simple loss compute and train function
     """
-    def __init__(self, model_size, factor, warmup, optimizer):
-        self.optimizer = optimizer
-        self._step = 0
-        self.warmup = warmup
-        self.factor = factor
-        self.model_size = model_size
-        self._rate = 0
+    def __init__(self, generator, criterion, opt=None):
+        self.generator = generator
+        self.criterion = criterion
+        self.opt = opt
 
-    def step(self):
-        """
-        Update parameters and rate.
-        """
-        self._step += 1  # increment step
-        rate = self.rate()  # update rate accordingly
-        for p in self.optimizer.param_groups:
-            p['lr'] = rate
-        self._rate = rate
-        self.optimizer.step()  # do a normal optimizer step
+    def __call__(self, x, y, norm):
+        x = self.generator(x)  # compute log softmax on vocab size
+        loss = self.criterion(x.contiguous().view(-1, x.size(-1)),
+                              y.contiguous().view(-1)) / norm
+        loss.backward()
+        if self.opt:
+            self.opt.step()
+            self.opt.optimizer.zero_grad()
 
-    def rate(self, step=None):
-        """
-        Implement learning rate strategy described above.
-        ie: lr = d_model^(-0.5) * min{step_num^(-0.5), step_num*warmup_steps^(-1.5)}
-        """
-        if step is None:
-            step = self._step
-        return self.factor * (
-                self.model_size**(-0.5) *
-                min(step**(-0.5), step * self.warmup**(-1.5))
+        return loss[0] * norm
+
+
+"""
+Greedy Decoding
+"""
+
+
+def greedy_decode(p_model, src, src_mask, max_len, start_symbol):
+    # encode source text
+    context = p_model.encode(src, src_mask)
+    # create target sequence one token at a time..
+    ys = torch.ones(1, 1).fill_(start_symbol).type_as(src)
+
+    for i in range(max_len-1):
+        out = model.decode(context=context, src_mask=src_mask,
+                           tgt=ys, tgt_mask=subsequent_mask(ys.size(1)).type_as(src))
+        prob = model.generator(out[:, -1])
+        _, next_word = torch.max(prob, dim=1)
+        next_word = next_word[0]
+        # append predicted word to target sequence
+        ys = torch.cat(
+            [ys, torch.ones(1, 1).type_as(src).fill_(next_word)],
+            dim=1
         )
 
+    return ys
 
-def get_std_opt(p_model):
-    return NoamOpt(
-        p_model.src_embed[0].d_model, 2, 4000, torch.optim.Adam(
-            p_model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9
-        )
+
+if __name__ == '__main__':
+
+    print("Hello world!!!")
+
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # use gpu 1
+
+    # Train the simple copy task
+    vocab_size = 11
+    criterion = LabelSmoothing(size=vocab_size, padding_idx=0, smoothing=0.0)
+    model = make_model(vocab_size, vocab_size, 2)  # model with same src_vocab and tgt_vocab
+    if torch.cuda.is_available:
+        print("cuda available!! put model on GPU")
+        model.cuda()
+    else:
+        print("cuda not available :(")
+
+    # print(model)
+    print("model built!")
+
+    optimizer = NoamOpt(
+        model_size=model.src_embed[0].d_model,  # model.src_embed = [Embeddings, PositionalEncoding]
+        factor=1,
+        warmup=400,
+        optimizer=torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9)
     )
 
+    # Train for 10 epochs
+    print("##############")
+    print("## TRAINING ##")
+    print("##############")
+    for epoch in range(10):
+        model.train()  # put model in training mode
+        run_epoch(data_gen(v=vocab_size, batch=30, n_batches=20),
+                  model,
+                  SimpleLossCompute(model.generator, criterion, optimizer))
 
-# Example of the curves for different model sizes and for
-#  optimization hyper-parameters.
-'''opts = [NoamOpt(512, 1, 4000, None),
-        NoamOpt(512, 1, 8000, None),
-        NoamOpt(256, 1, 4000, None),
-        NoamOpt(256, 1, 8000, None)]
-plt.plot(np.arange(1, 20000), [[opt.rate(i) for opt in opts] for i in range(1, 20000)])
-plt.legend(["512:4000", "512:8000", "256:4000", "256:8000"])
-plt.savefig('custom_lr_test.png')
-print("custom learning rates figure saved!")'''
+        model.eval()  # put model in evaluation mode
+        print(run_epoch(
+            data_gen(v=vocab_size, batch=30, n_batches=5),
+            model,
+            SimpleLossCompute(model.generator, criterion, opt=None)
+        ))
 
-
-"""
-Label smoothing
----------------
-- During training, we employed label smoothing of value e_ls = 0.1.
-- This hurts perplexity, as the model learns to be more unsure,
-but improves accuracy and BLEU score.
-
-- We implement label smoothing using the KL div loss.
-- Instead of using a one-hot target distribution, we create a
-distribution that has confidence of the correct word and the
-rest of the smoothing mass distributed throughout the vocabulary.
-"""
-
-
-class LabelSmoothing(nn.Module):
-    """
-    Implement label smoothing.
-    """
-    def __init__(self, size: int, padding_idx: int, smoothing=0.0):
-        super(LabelSmoothing, self).__init__()
-        self.criterion = nn.KLDivLoss(reduction='sum')
-        self.padding_idx = padding_idx
-        self.confidence = 1.0 - smoothing
-        self.smoothing = smoothing
-        self.size = size
-        self.true_dist = None
-
-    def forward(self, x, target):
-        assert x.size(1) == self.size
-        true_dist = x.clone()
-        true_dist.fill_(self.smoothing / (self.size - 2))
-        true_dist.scatter_(1, target.unsqueeze(1), self.confidence)
-        true_dist[:, self.padding_idx] = 0
-        mask = torch.nonzero(target == self.padding_idx)
-        if mask.dim() > 0:
-            true_dist.index_fill_(0, mask.squeeze(), 0.0)
-        self.true_dist = true_dist
-        return self.criterion(x, true_dist)
+    # Evaluate
+    print("##############")
+    print("## TESTING ##")
+    print("##############")
+    model.eval()
+    src = torch.LongTensor([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    src_mask = torch.ones(1, 1, 10)
+    print(greedy_decode(
+        p_model=model, src=src, src_mask=src_mask, max_len=10, start_symbol=1
+    ))
 
 
-# Here we can see how the mass is distributed to the words
-#  based on confidence.
-'''criterion = LabelSmoothing(5, 0, 0.4)
-predict = torch.FloatTensor([[0, 0.2, 0.7, 0.1, 0],
-                             [0, 0.2, 0.7, 0.1, 0],
-                             [0, 0.2, 0.7, 0.1, 0],
-                             [0, 0.2, 0.7, 0.1, 0],
-                             [0, 0.2, 0.7, 0.1, 0]])
-v = criterion(predict.log(), torch.LongTensor([4, 3, 2, 1, 0]))
-# show the target distribution expected by the system.
-plt.imsave('label_smoothing_test.png', criterion.true_dist)
-print("label smoothing test image saved!")'''
-
-# Label smoothing actually starts to penalize the model
-#  if it gets very confident about a given choice.
-'''criterion = LabelSmoothing(5, 0, 0.1)
-def loss(x):
-    d = x + 3
-    predict = torch.FloatTensor([[0, x/d, 1/d, 1/d, 1/d]])
-    return criterion(predict.log(), torch.LongTensor([1]))[0]
-plt.plot(np.arange(1, 100), [loss(x) for x in range(1, 100)])
-plt.savefig('label_smoothing_penalize_test.png')
-print("label smoothing penalize test image saved!")'''
-
-
-# continue "A FIRST EXAMPLE" from http://nlp.seas.harvard.edu/2018/04/03/attention.html
+# continue "A REAL WORLD EXAMPLE" from http://nlp.seas.harvard.edu/2018/04/03/attention.html
 
 
 

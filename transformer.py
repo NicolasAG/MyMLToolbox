@@ -19,6 +19,8 @@ from utils import \
     clones,\
     scaled_dot_prod_attention
 
+from encdec import subsequent_mask
+
 
 """
 EMBEDDINGS
@@ -157,7 +159,7 @@ class MultiHeadAttention(nn.Module):
         """
         Implements Figure http://nlp.seas.harvard.edu/images/the-annotated-transformer_38_0.png
         """
-        if mask:
+        if mask is not None:
             mask = mask.unsqueeze(1)  # add dimension of size one at position 1
 
         n_batches = query.size(0)
@@ -292,7 +294,7 @@ class EncoderLayer(nn.Module):
         http://nlp.seas.harvard.edu/images/the-annotated-transformer_14_0.png
         """
         # apply self attention
-        x = self.sublayer[0](x, lambda a: self.self_attn(a, a, a, mask))
+        x = self.sublayer[0](x, lambda a: self.self_attn.forward(a, a, a, mask))
         # apply feed-forward
         return self.sublayer[1](x, self.feed_forward)
 
@@ -330,11 +332,109 @@ class DecoderLayer(nn.Module):
         """
         c = context
         # apply self attention on the target sentence
-        x = self.sublayer[0](x, lambda a: self.self_attn(a, a, a, tgt_mask))
+        x = self.sublayer[0](x, lambda a: self.self_attn.forward(a, a, a, tgt_mask))
         # apply source attention on the encoded context
-        x = self.sublayer[1](x, lambda a: self.src_attn(a, c, c, src_mask))
+        x = self.sublayer[1](x, lambda a: self.src_attn.forward(a, c, c, src_mask))
         # apply feed-forward
         return self.sublayer[2](x, self.feed_forward)
+
+
+"""
+OPTIMIZER:
+"""
+
+"""
+- We used Adam with beta_1 = 0.9, beta_2=0.98 and eps=1e-9
+- We varied the learning rate over the course of training:
+--> lr = d_model^(-0.5) * min{step_num^(-0.5), step_num*warmup_steps^(-1.5)}
+- This corresponds to increasing the learning rate linearly
+for the first warmup_steps training steps, and decreasing it
+thereafter proportionally to the inverse square root of the step number.
+- We used warmup_steps = 4000.
+
+==> NOTE: This part is very important. Need to train with this
+setup of the model
+"""
+
+
+class NoamOpt:
+    """
+    Optimizer wrapper that implements rate.
+    """
+    def __init__(self, model_size, factor, warmup, optimizer):
+        self.optimizer = optimizer
+        self._step = 0
+        self.warmup = warmup
+        self.factor = factor
+        self.model_size = model_size
+        self._rate = 0
+
+    def step(self):
+        """
+        Update parameters and rate.
+        """
+        self._step += 1  # increment step
+        rate = self.rate()  # update rate accordingly
+        for p in self.optimizer.param_groups:
+            p['lr'] = rate
+        self._rate = rate
+        self.optimizer.step()  # do a normal optimizer step
+
+    def rate(self, step=None):
+        """
+        Implement learning rate strategy described above.
+        ie: lr = d_model^(-0.5) * min{step_num^(-0.5), step_num*warmup_steps^(-1.5)}
+        """
+        if step is None:
+            step = self._step
+        return self.factor * (
+                self.model_size**(-0.5) *
+                min(step**(-0.5), step * self.warmup**(-1.5))
+        )
+
+
+"""
+REGULARIZATION
+"""
+
+"""
+Label smoothing
+---------------
+- During training, we employed label smoothing of value e_ls = 0.1.
+- This hurts perplexity, as the model learns to be more unsure,
+but improves accuracy and BLEU score.
+
+- We implement label smoothing using the KL div loss.
+- Instead of using a one-hot target distribution, we create a
+distribution that has confidence of the correct word and the
+rest of the smoothing mass distributed throughout the vocabulary.
+"""
+
+
+class LabelSmoothing(nn.Module):
+    """
+    Implement label smoothing.
+    """
+    def __init__(self, size: int, padding_idx: int, smoothing=0.0):
+        super(LabelSmoothing, self).__init__()
+        self.criterion = nn.KLDivLoss(reduction='sum')
+        self.padding_idx = padding_idx
+        self.confidence = 1.0 - smoothing
+        self.smoothing = smoothing
+        self.size = size
+        self.true_dist = None
+
+    def forward(self, x, target):
+        assert x.size(1) == self.size
+        true_dist = x.clone()
+        true_dist.fill_(self.smoothing / (self.size - 2))
+        true_dist.scatter_(1, target.unsqueeze(1), self.confidence)
+        true_dist[:, self.padding_idx] = 0
+        mask = torch.nonzero(target == self.padding_idx)
+        if mask.dim() > 0:
+            true_dist.index_fill_(0, mask.squeeze(), 0.0)
+        self.true_dist = true_dist
+        return self.criterion(x, true_dist)
 
 
 """
@@ -392,7 +492,7 @@ if __name__ == '__main__':
 
     # Test sub-sequence masking
     plt.figure(figsize=(5, 5))
-    plt.imsave('mask_test.png', subsequence_mask(20)[0])
+    plt.imsave('mask_test.png', subsequent_mask(20)[0])
     print("sub-sequence masking figure saved!")
     plt.close()
 
@@ -404,6 +504,47 @@ if __name__ == '__main__':
     plt.legend(["dim %d" % p for p in [4, 5, 6, 7]])
     plt.savefig('pos_emb_test.png')
     print("positional encoding figure saved!")
+    plt.close()
+
+    # Test custom optimizer learning rates
+    # Example of the curves for different model sizes and for
+    #  optimization hyper-parameters.
+    opts = [NoamOpt(512, 1, 4000, None),
+            NoamOpt(512, 1, 8000, None),
+            NoamOpt(256, 1, 4000, None),
+            NoamOpt(256, 1, 8000, None)]
+    plt.plot(np.arange(1, 20000), [[opt.rate(i) for opt in opts] for i in range(1, 20000)])
+    plt.legend(["512:4000", "512:8000", "256:4000", "256:8000"])
+    plt.savefig('custom_lr_test.png')
+    print("custom learning rates figure saved!")
+    plt.close()
+
+    # Test regularization with label smoothing
+    # Here we can see how the mass is distributed to the words
+    #  based on confidence.
+    criterion = LabelSmoothing(5, 0, 0.4)
+    predict = torch.FloatTensor([[0, 0.2, 0.7, 0.1, 0],
+                                 [0, 0.2, 0.7, 0.1, 0],
+                                 [0, 0.2, 0.7, 0.1, 0],
+                                 [0, 0.2, 0.7, 0.1, 0],
+                                 [0, 0.2, 0.7, 0.1, 0]])
+    v = criterion.forward(predict.log(), torch.LongTensor([4, 3, 2, 1, 0]))
+    # show the target distribution expected by the system.
+    plt.imsave('label_smoothing_test.png', criterion.true_dist)
+    print("label smoothing test image saved!")
+    plt.close()
+
+    # Label smoothing actually starts to penalize the model
+    #  if it gets very confident about a given choice.
+    criterion = LabelSmoothing(5, 0, 0.1)
+    def loss(x):
+        d = x + 3
+        pred = torch.FloatTensor([[0, x/d, 1/d, 1/d, 1/d]])
+        return criterion.forward(pred.log(), torch.LongTensor([1]))[0]
+    plt.plot(np.arange(1, 100), [loss(x) for x in range(1, 100)])
+    plt.savefig('label_smoothing_penalize_test.png')
+    print("label smoothing penalize test image saved!")
+    plt.close()
 
     # Test model production
     tmp_model = make_model(10, 10, 2)
