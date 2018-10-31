@@ -125,13 +125,13 @@ class Batch:
     sentences for training, as well as constructing the masks.
     """
     def __init__(self, src, tgt=None, pad=0):
-        self.src = src
+        self.src = src  # input sequence
         self.src_mask = (src != pad).unsqueeze(-2)
         if tgt is not None:
-            self.tgt = tgt[:, :-1]
-            self.tgt_y = tgt[:, 1:]
+            self.tgt = tgt[:, :-1]  # teacher forcing sequence (true target - assumed predicted)
+            self.tgt_y = tgt[:, 1:]  # target to predict
             self.tgt_mask = self.make_std_mask(self.tgt, pad)
-            self.n_tokens = (self.tgt_y != pad).data.sum()
+            self.n_tokens = (self.tgt_y != pad).sum().item()  # .item() bcs has dimension 0
 
     @staticmethod
     def make_std_mask(tgt, pad):
@@ -141,3 +141,16 @@ class Batch:
         tgt_mask = (tgt != pad).unsqueeze(-2)
         tgt_mask = tgt_mask & subsequent_mask(tgt_mask.size(1)).type_as(tgt_mask)
         return tgt_mask
+
+    def cuda(self):
+        """
+        Move everything on GPU
+        """
+        self.src = self.src.cuda()
+        self.src_mask = self.src_mask.cuda()
+        if self.tgt is not None:
+            self.tgt = self.tgt.cuda()
+            self.tgt_y = self.tgt_y.cuda()
+            self.tgt_mask = self.tgt_mask.cuda()
+
+        return self

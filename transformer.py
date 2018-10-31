@@ -413,11 +413,11 @@ rest of the smoothing mass distributed throughout the vocabulary.
 
 class LabelSmoothing(nn.Module):
     """
-    Implement label smoothing.
+    Implement label smoothing on KLDivLoss.
     """
     def __init__(self, size: int, padding_idx: int, smoothing=0.0):
         super(LabelSmoothing, self).__init__()
-        self.criterion = nn.KLDivLoss(reduction='sum')
+        self.loss_fn = nn.KLDivLoss(reduction='sum')
         self.padding_idx = padding_idx
         self.confidence = 1.0 - smoothing
         self.smoothing = smoothing
@@ -431,10 +431,10 @@ class LabelSmoothing(nn.Module):
         true_dist.scatter_(1, target.unsqueeze(1), self.confidence)
         true_dist[:, self.padding_idx] = 0
         mask = torch.nonzero(target == self.padding_idx)
-        if mask.dim() > 0:
+        if mask.dim() > 0 and len(mask) > 0:
             true_dist.index_fill_(0, mask.squeeze(), 0.0)
         self.true_dist = true_dist
-        return self.criterion(x, true_dist)
+        return self.loss_fn(x, true_dist)
 
 
 """
@@ -522,25 +522,25 @@ if __name__ == '__main__':
     # Test regularization with label smoothing
     # Here we can see how the mass is distributed to the words
     #  based on confidence.
-    criterion = LabelSmoothing(5, 0, 0.4)
+    loss_fn = LabelSmoothing(5, 0, 0.4)
     predict = torch.FloatTensor([[0, 0.2, 0.7, 0.1, 0],
                                  [0, 0.2, 0.7, 0.1, 0],
                                  [0, 0.2, 0.7, 0.1, 0],
                                  [0, 0.2, 0.7, 0.1, 0],
                                  [0, 0.2, 0.7, 0.1, 0]])
-    v = criterion.forward(predict.log(), torch.LongTensor([4, 3, 2, 1, 0]))
+    v = loss_fn.forward(predict.log(), torch.LongTensor([4, 3, 2, 1, 0]))
     # show the target distribution expected by the system.
-    plt.imsave('label_smoothing_test.png', criterion.true_dist)
+    plt.imsave('label_smoothing_test.png', loss_fn.true_dist)
     print("label smoothing test image saved!")
     plt.close()
 
     # Label smoothing actually starts to penalize the model
     #  if it gets very confident about a given choice.
-    criterion = LabelSmoothing(5, 0, 0.1)
+    loss_fn = LabelSmoothing(5, 0, 0.1)
     def loss(x):
         d = x + 3
         pred = torch.FloatTensor([[0, x/d, 1/d, 1/d, 1/d]])
-        return criterion.forward(pred.log(), torch.LongTensor([1]))[0]
+        return loss_fn.forward(pred.log(), torch.LongTensor([1]))[0]
     plt.plot(np.arange(1, 100), [loss(x) for x in range(1, 100)])
     plt.savefig('label_smoothing_penalize_test.png')
     print("label smoothing penalize test image saved!")
@@ -548,5 +548,5 @@ if __name__ == '__main__':
 
     # Test model production
     tmp_model = make_model(10, 10, 2)
-    print(tmp_model)
+    # print(tmp_model)
     print("it builds!")

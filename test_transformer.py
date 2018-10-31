@@ -1,7 +1,7 @@
 """
 Script followed from `The Annotated Transformer`
 from Harvard NLP group
-http://nlp.seas.harvard.edu/2018/04/03/attention.html#training
+http://nlp.seas.harvard.edu/2018/04/03/attention.html
 """
 import os
 
@@ -32,19 +32,27 @@ def run_epoch(data_iter, p_model, loss_compute):
     total_loss = 0
     tokens = 0
     for i, batch in enumerate(data_iter):
-        out = p_model(batch.src, batch.tgt,
+        # move data to GPU if available
+        if torch.cuda.is_available():
+            batch = batch.cuda()
+
+        out = p_model(batch.src, batch.tgt,  # src = input seq | tgt = teacher forcing seq
                       batch.src_mask, batch.tgt_mask)
+
         loss = loss_compute(out, batch.tgt_y, batch.n_tokens)
+
         total_loss += loss
         total_tokens += batch.n_tokens
         tokens += batch.n_tokens
-        if i % 50 == 1:
+
+        if i % 10 == 11:  # change '11' to '0' if you want to log progress ;)
             elapsed = time.time() - start
-            print("Epoch: step #%.4d, loss: %.6f, tokens p.sec: %.6f" % (
-                i, loss / batch.n_tokens, tokens / elapsed
+            print("batch #%.3d, loss: %.6f, tokens p.sec: %.6f" % (
+                i+1, loss / batch.n_tokens, tokens / elapsed
             ))
             start = time.time()
             tokens = 0
+
     return total_loss / total_tokens
 
 
@@ -83,15 +91,15 @@ Synthetic data
 #  the goal is to generate back those same symbols.
 
 
-def data_gen(v, batch, n_batches):
+def data_gen(v, batch_size, n_batches):
     """
     Generate random data for a src-tgt copy task
     :param v: size of vocabulary
-    :param batch: batch size
+    :param batch_size: batch size
     :param n_batches: number of batches
     """
     for i in range(n_batches):
-        data = torch.from_numpy(np.random.randint(1, v, size=(batch, 10)))
+        data = torch.from_numpy(np.random.randint(1, v, size=(batch_size, 5)))
         data[:, 0] = 1  # all examples starts with a '1'
         yield Batch(data, data, 0)  # source & target is the same data, pad = 0
 
@@ -105,21 +113,26 @@ class SimpleLossCompute:
     """
     A simple loss compute and train function
     """
-    def __init__(self, generator, criterion, opt=None):
+    def __init__(self, generator, loss_function, opt=None):
         self.generator = generator
-        self.criterion = criterion
+        self.loss_function = loss_function
         self.opt = opt
 
-    def __call__(self, x, y, norm):
-        x = self.generator(x)  # compute log softmax on vocab size
-        loss = self.criterion(x.contiguous().view(-1, x.size(-1)),
-                              y.contiguous().view(-1)) / norm
+    def __call__(self, predictions, target, norm):
+        predictions = self.generator(predictions)  # compute log softmax on vocab size
+
+        loss = self.loss_function(
+            predictions.contiguous().view(-1, predictions.size(-1)),
+            target.contiguous().view(-1)
+        ) / norm
+
         loss.backward()
+
         if self.opt:
             self.opt.step()
             self.opt.optimizer.zero_grad()
 
-        return loss[0] * norm
+        return loss.item() * norm  # .item() because has dimension 0
 
 
 """
@@ -155,14 +168,14 @@ if __name__ == '__main__':
 
     # Train the simple copy task
     vocab_size = 11
-    criterion = LabelSmoothing(size=vocab_size, padding_idx=0, smoothing=0.0)
+    loss_fn = LabelSmoothing(size=vocab_size, padding_idx=0, smoothing=0.0)
     model = make_model(vocab_size, vocab_size, 2)  # model with same src_vocab and tgt_vocab
 
-    # if torch.cuda.is_available:
-    #     print("cuda available!! put model on GPU")
-    #     model.cuda()
-    # else:
-    #     print("cuda not available :(")
+    if torch.cuda.is_available:
+        print("cuda available!! put model on GPU")
+        model.cuda()
+    else:
+        print("cuda not available :(")
 
     # print(model)
     print("model built!")
@@ -178,29 +191,61 @@ if __name__ == '__main__':
     print("##############")
     print("## TRAINING ##")
     print("##############")
+    best_valid = 1e+9
+    patience = 5
     for epoch in range(10):
         model.train()  # put model in training mode
-        run_epoch(data_gen(v=vocab_size, batch=30, n_batches=20),
-                  model,
-                  SimpleLossCompute(model.generator, criterion, optimizer))
+        train_loss = run_epoch(
+            data_gen(v=vocab_size, batch_size=30, n_batches=20),
+            model,
+            SimpleLossCompute(model.generator, loss_fn, optimizer)
+        )
 
         model.eval()  # put model in evaluation mode
-        print(run_epoch(
-            data_gen(v=vocab_size, batch=30, n_batches=5),
+        valid_loss = run_epoch(
+            data_gen(v=vocab_size, batch_size=30, n_batches=5),
             model,
-            SimpleLossCompute(model.generator, criterion, opt=None)
+            SimpleLossCompute(model.generator, loss_fn, opt=None)
+        )
+
+        print("Epoch %.2d: train loss = %.6f -- valid loss = %.6f" % (
+            epoch + 1, train_loss, valid_loss
         ))
+
+        if valid_loss < best_valid:
+            best_valid = valid_loss
+            patience = 5  # reset patience
+            torch.save(model.state_dict(), "./transformer_copy.pt")  # save parameters
+            print("saved new parameters. patience =", patience)
+        else:
+            patience -= 1
+            print("patience =", patience)
+
+        if patience == 0:
+            break
 
     # Evaluate
     print("##############")
     print("## TESTING ##")
     print("##############")
     model.eval()
-    src = torch.LongTensor([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-    src_mask = torch.ones(1, 1, 10)
-    print(greedy_decode(
-        p_model=model, src=src, src_mask=src_mask, max_len=10, start_symbol=1
-    ))
+    # restore best parameters
+    model.load_state_dict(torch.load("./transformer_copy.pt"))
+
+    while True:
+        src = input("enter a sequence of digit separated by spaces:")
+        src = [int(s) for s in src.split()]
+        length = len(src)
+        src = torch.LongTensor([src])
+        src_mask = torch.ones(1, 1, len(src))
+        # move to GPU is available
+        if torch.cuda.is_available():
+            src = src.cuda()
+            src_mask = src_mask.cuda()
+
+        print(greedy_decode(
+            p_model=model, src=src, src_mask=src_mask, max_len=length, start_symbol=1
+        ))
 
 
 # continue "A REAL WORLD EXAMPLE" from http://nlp.seas.harvard.edu/2018/04/03/attention.html
