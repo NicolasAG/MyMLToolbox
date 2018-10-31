@@ -14,12 +14,14 @@ import torch.nn.functional as F
 import math
 import copy
 
+from encdec import subsequent_mask
+
+import sys
+sys.path.append('..')
 from utils import \
     LayerNorm,\
     clones,\
     scaled_dot_prod_attention
-
-from encdec import subsequent_mask
 
 
 """
