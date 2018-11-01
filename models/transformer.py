@@ -16,8 +16,6 @@ import copy
 
 from encdec import subsequent_mask
 
-import sys
-sys.path.append('..')
 from utils import \
     LayerNorm,\
     clones,\
