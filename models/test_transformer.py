@@ -189,7 +189,7 @@ if __name__ == '__main__':
     loss_fn = LabelSmoothing(size=vocab_size, padding_idx=0, smoothing=0.0)
     model = make_model(vocab_size, vocab_size, 2)  # model with same src_vocab and tgt_vocab
 
-    if torch.cuda.is_available:
+    if torch.cuda.is_available():
         print("cuda available!! put model on GPU")
         model.cuda()
     else:
