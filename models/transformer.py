@@ -263,8 +263,8 @@ class SublayerConnection(nn.Module):
         Apply residual connection to any sublayer with the same size
         `sublayer` can be any function: self-attn, feed-forward, ...
         """
-        # return x + self.dropout(sublayer(self.norm(x)))  # Note for simplicity the norm is first as opposed to last.
-        return self.norm(x + self.dropout(sublayer(x)))
+        return x + self.dropout(sublayer(self.norm(x)))  # Note for simplicity the norm is first as opposed to last.
+        # return self.norm(x + self.dropout(sublayer(x)))
 
 
 """

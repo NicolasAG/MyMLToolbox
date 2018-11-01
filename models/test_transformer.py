@@ -36,8 +36,16 @@ def run_epoch(data_iter, p_model, loss_compute):
         if torch.cuda.is_available():
             batch = batch.cuda()
 
+        # src ~(bs, max_len)
+        # tgt ~(bs, max_len - 1) --> because this is the teacher forcing input
+        # src_mask ~(bs, 1, max_len)
+        # tgt_mask ~(bs, 1, max_len - 1)
+
         out = p_model(batch.src, batch.tgt,  # src = input seq | tgt = teacher forcing seq
                       batch.src_mask, batch.tgt_mask)
+
+        # out ~(bs, max_len - 1, 512)
+        # tgt_y ~(bs, max_len - 1) --> because this is what should be predicted
 
         loss = loss_compute(out, batch.tgt_y, batch.n_tokens)
 
@@ -99,7 +107,7 @@ def data_gen(v, batch_size, n_batches):
     :param n_batches: number of batches
     """
     for i in range(n_batches):
-        data = torch.from_numpy(np.random.randint(1, v, size=(batch_size, 5)))
+        data = torch.from_numpy(np.random.randint(1, v, size=(batch_size, 10)))
         data[:, 0] = 1  # all examples starts with a '1'
         yield Batch(data, data, 0)  # source & target is the same data, pad = 0
 
@@ -146,17 +154,27 @@ def greedy_decode(p_model, src, src_mask, max_len, start_symbol):
     # create target sequence one token at a time..
     ys = torch.ones(1, 1).fill_(start_symbol).type_as(src)
 
+    # src ~(bs=1, len)
+    # src_mask ~(bs=1, 1, 1)
+    # context ~(bs=1, max_len, 512)
+    # ys ~(bs=1, 1)
+
     for i in range(max_len-1):
         out = model.decode(context=context, src_mask=src_mask,
                            tgt=ys, tgt_mask=subsequent_mask(ys.size(1)).type_as(src))
         prob = model.generator(out[:, -1])
+
+        # out ~(bs=1, i, 512)
+        # prob ~(bs=1, vocab=11)
+
         _, next_word = torch.max(prob, dim=1)
         next_word = next_word[0]
+
         # append predicted word to target sequence
         ys = torch.cat(
             [ys, torch.ones(1, 1).type_as(src).fill_(next_word)],
             dim=1
-        )
+        )  # ~(bs=1, i+1)
 
     return ys
 
@@ -196,7 +214,7 @@ if __name__ == '__main__':
     for epoch in range(10):
         model.train()  # put model in training mode
         train_loss = run_epoch(
-            data_gen(v=vocab_size, batch_size=30, n_batches=20),
+            data_gen(v=vocab_size, batch_size=30, n_batches=50),
             model,
             SimpleLossCompute(model.generator, loss_fn, optimizer)
         )
@@ -233,7 +251,7 @@ if __name__ == '__main__':
     model.load_state_dict(torch.load("./transformer_copy.pt"))
 
     while True:
-        src = input("enter a sequence of digit separated by spaces:")
+        src = input("enter a sequence of digit separated by spaces: ")
         src = [int(s) for s in src.split()]
         length = len(src)
         src = torch.LongTensor([src])
