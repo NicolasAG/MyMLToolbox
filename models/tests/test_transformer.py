@@ -8,9 +8,12 @@ import os
 import numpy as np
 import torch
 import time
-import seaborn
-seaborn.set_context(context='talk')
+# import seaborn
+# seaborn.set_context(context='talk')
 
+import sys
+sys.path.append('..')
+sys.path.append('../..')
 from encdec import Batch, subsequent_mask
 from transformer import make_model, NoamOpt, LabelSmoothing
 
@@ -53,7 +56,7 @@ def run_epoch(data_iter, p_model, loss_compute):
         total_tokens += batch.n_tokens
         tokens += batch.n_tokens
 
-        if i % 10 == 11:  # change '11' to '0' if you want to log progress ;)
+        if i % 10 == 9:
             elapsed = time.time() - start
             print("batch #%.3d, loss: %.6f, tokens p.sec: %.6f" % (
                 i+1, loss / batch.n_tokens, tokens / elapsed
