@@ -1,6 +1,8 @@
 """
 Tutorial followed from Pytorch Github Tuto
 https://github.com/yunjey/pytorch-tutorial/blob/master/tutorials/02-intermediate/language_model/main.py
+
+also look at: https://pytorch.org/tutorials/intermediate/seq2seq_translation_tutorial.html
 """
 
 import numpy as np
