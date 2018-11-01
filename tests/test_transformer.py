@@ -13,9 +13,8 @@ import time
 
 import sys
 sys.path.append('..')
-sys.path.append('../..')
-from encdec import Batch, subsequent_mask
-from transformer import make_model, NoamOpt, LabelSmoothing
+from models.encdec import Batch, subsequent_mask
+from models.transformer import make_model, NoamOpt, LabelSmoothing
 
 
 """

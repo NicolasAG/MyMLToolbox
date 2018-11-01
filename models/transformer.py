@@ -14,7 +14,7 @@ import torch.nn.functional as F
 import math
 import copy
 
-from encdec import subsequent_mask
+from models.encdec import subsequent_mask
 
 from utils import \
     LayerNorm,\
@@ -456,7 +456,7 @@ def make_model(src_vocab: int, tgt_vocab: int, n: int,
     :param dropout: dropout rate
     :return: an EncoderDecoder model
     """
-    from encdec import \
+    from models.encdec import \
         EncoderDecoder, \
         Encoder, \
         Decoder, \
