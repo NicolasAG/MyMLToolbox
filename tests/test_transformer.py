@@ -184,7 +184,7 @@ def greedy_decode(p_model, src, src_mask, max_len, start_symbol):
 if __name__ == '__main__':
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # use gpu 1
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # use gpu 0
 
     # Train the simple copy task
     vocab_size = 11

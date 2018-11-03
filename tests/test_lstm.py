@@ -33,7 +33,7 @@ if __name__ == '__main__':
     seq_length = 30
     learning_rate = 0.002
 
-    # Load "Penn Treebank" dataset
+    # Load dataset
     corpus = Corpus()
     idx_data = corpus.get_data('train.txt')  # ~(line, max_len)
     vocab_size = len(corpus.dictionary)
@@ -45,4 +45,3 @@ if __name__ == '__main__':
         print(sent)
     print("vocab:", vocab_size)
     print("num_batches:", num_batches)
-
