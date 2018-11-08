@@ -8,6 +8,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class EncoderRNN(nn.Module):
@@ -54,7 +55,7 @@ class EncoderRNN(nn.Module):
         else:
             raise NotImplementedError("unknown encoder gate %s" % gate)
 
-    def forward(self, x, h):
+    def forward(self, x, h_0):
         """
         GRU doc:
         -in1- input ~(seq_len, batch, input_size): tensor containing the features of the input sequence.
@@ -98,34 +99,34 @@ class EncoderRNN(nn.Module):
         x = self.embedding(x)  # ~(bs, seq, size)
 
         if self.gate == 'lstm':
-            h, c = h  # decompose lstm unit into hidden state & cell state
-            out, (h, c) = self.rnn(x, h, c)
+            h_0, c_0 = h_0  # decompose lstm unit into hidden state & cell state
+            out, (h_t, c_t) = self.rnn(x, h_0, c_0)
             # out ~(bs, seq, n_dir*size)
-            # h   ~(bs, n_dir*n_layers, size)
-            # c   ~(bs, n_dir*n_layers, size)
+            # h_t ~(bs, n_dir*n_layers, size)
+            # c_t ~(bs, n_dir*n_layers, size)
 
             # separate the directions with forward and backward being direction 0 and 1 respectively.
             out = out.view(out.size(0), out.size(1), self.n_dir, self.hidden_size)
-            h = h.view(h.size(0), self.n_layers, self.n_dir, self.hidden_size)
-            c = h.view(c.size(0), self.n_layers, self.n_dir, self.hidden_size)
+            h_t = h_t.view(h_t.size(0), self.n_layers, self.n_dir, self.hidden_size)
+            c_t = c_t.view(c_t.size(0), self.n_layers, self.n_dir, self.hidden_size)
             # out ~(bs, seq, n_dir, size)
-            # h   ~(bs, n_layers, n_dir, size)
-            # c   ~(bs, n_layers, n_dir, size)
+            # h_t ~(bs, n_layers, n_dir, size)
+            # c_t ~(bs, n_layers, n_dir, size)
 
-            h = (h, c)  # merge back the lstm unit
+            h_t = (h_t, c_t)  # merge back the lstm unit
 
         else:
-            out, h = self.rnn(x, h)
+            out, h_t = self.rnn(x, h_0)
             # out ~(bs, seq, n_dir*size)
-            # h   ~(bs, n_dir*n_layers, size)
+            # h_t ~(bs, n_dir*n_layers, size)
 
             # separate the directions with forward and backward being direction 0 and 1 respectively.
             out = out.view(out.size(0), out.size(1), self.n_dir, self.hidden_size)
-            h = h.view(h.size(0), self.n_layers, self.n_dir, self.hidden_size)
+            h_t = h_t.view(h_t.size(0), self.n_layers, self.n_dir, self.hidden_size)
             # out ~(bs, seq, n_dir, size)
-            # h   ~(bs, n_layers, n_dir, size)
+            # h_t ~(bs, n_layers, n_dir, size)
 
-        return out, h
+        return out, h_t
 
     def init_hidden(self, bs):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -162,7 +163,7 @@ class ContextRNN(nn.Module):
                 num_layers=self.n_layers,
                 bias=True,
                 batch_first=True,  # input and output tensors are provided as (batch, seq, feature)
-                dropout=dropout,
+                dropout=dropout,  # add Dropout on the outputs of each layer except the last one
                 bidirectional=self.bidirectional
             )
 
@@ -173,49 +174,49 @@ class ContextRNN(nn.Module):
                 num_layers=self.n_layers,
                 bias=True,
                 batch_first=True,  # input and output tensors are provided as (batch, seq, feature)
-                dropout=dropout,
+                dropout=dropout,  # add Dropout on the outputs of each layer except the last one
                 bidirectional=self.bidirectional
             )
 
         else:
             raise NotImplementedError("unknown encoder gate %s" % gate)
 
-    def forward(self, x, h):
+    def forward(self, x, h_0):
         """
         :param x: input sequence of vectors ~(bs, seq, size)
-        :param h: initial hidden state ~(bs, n_dir*n_layers, size)
+        :param h_0: initial hidden state ~(bs, n_dir*n_layers, size)
         :return: out ~(bs, seq, n_dir, size): output features h_t from the last layer, for each t
                  h ~(bs, n_layers, n_dir, size): hidden state for t = seq_len
         """
         if self.gate == 'lstm':
-            h, c = h  # decompose lstm unit into hidden state & cell state
-            out, (h, c) = self.rnn(x, h, c)
+            h_0, c_0 = h_0  # decompose lstm unit into hidden state & cell state
+            out, (h_t, c_t) = self.rnn(x, h_0, c_0)
             # out ~(bs, seq, n_dir*size)
-            # h   ~(bs, n_dir*n_layers, size)
-            # c   ~(bs, n_dir*n_layers, size)
+            # h_t ~(bs, n_dir*n_layers, size)
+            # c_t ~(bs, n_dir*n_layers, size)
 
             # separate the directions with forward and backward being direction 0 and 1 respectively.
             out = out.view(out.size(0), out.size(1), self.n_dir, self.hidden_size)
-            h = h.view(h.size(0), self.n_layers, self.n_dir, self.hidden_size)
-            c = h.view(c.size(0), self.n_layers, self.n_dir, self.hidden_size)
+            h_t = h_t.view(h_t.size(0), self.n_layers, self.n_dir, self.hidden_size)
+            c_t = c_t.view(c_t.size(0), self.n_layers, self.n_dir, self.hidden_size)
             # out ~(bs, seq, n_dir, size)
-            # h   ~(bs, n_layers, n_dir, size)
-            # c   ~(bs, n_layers, n_dir, size)
+            # h_t ~(bs, n_layers, n_dir, size)
+            # c_t ~(bs, n_layers, n_dir, size)
 
-            h = (h, c)  # merge back the lstm unit
+            h_t = (h_t, c_t)  # merge back the lstm unit
 
         else:
-            out, h = self.rnn(x, h)
+            out, h_t = self.rnn(x, h_0)
             # out ~(bs, seq, n_dir*size)
-            # h   ~(bs, n_dir*n_layers, size)
+            # h_t ~(bs, n_dir*n_layers, size)
 
             # separate the directions with forward and backward being direction 0 and 1 respectively.
             out = out.view(out.size(0), out.size(1), self.n_dir, self.hidden_size)
-            h = h.view(h.size(0), self.n_layers, self.n_dir, self.hidden_size)
+            h_t = h_t.view(h_t.size(0), self.n_layers, self.n_dir, self.hidden_size)
             # out ~(bs, seq, n_dir, size)
-            # h   ~(bs, n_layers, n_dir, size)
+            # h_t ~(bs, n_layers, n_dir, size)
 
-        return out, h
+        return out, h_t
 
     def init_hidden(self, bs):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -268,7 +269,7 @@ class AttnDecoderRNN(nn.Module):
                 num_layers=self.n_layers,
                 bias=True,
                 batch_first=True,  # input and output tensors are provided as (batch, seq, feature)
-                dropout=dropout,
+                dropout=dropout,  # add Dropout on the outputs of each layer except the last one
                 bidirectional=False
             )
 
@@ -279,24 +280,46 @@ class AttnDecoderRNN(nn.Module):
                 num_layers=self.n_layers,
                 bias=True,
                 batch_first=True,  # input and output tensors are provided as (batch, seq, feature)
-                dropout=dropout,
+                dropout=dropout,  # add Dropout on the outputs of each layer except the last one
                 bidirectional=False
             )
 
         else:
             raise NotImplementedError("unknown encoder gate %s" % gate)
 
-        # Attention layers
+        # attn takes in previous hidden state (h_t-1) and current input (x_t)
+        # attn is used to computes attention weights
         self.attn = nn.Linear(self.hidden_size * 2, max_length)
-        self.att_combine = nn.Linear(self.hidden_size * 2, self.hidden_size)
-        # Dropout layer
+        # attn_combine takes in the weighted context (c_attn) and current input (x_t)
+        # attn_combine is used to re-evaluate c_attn in terms of x_t
+        self.attn_combine = nn.Linear(self.hidden_size * 2, self.hidden_size)
+        # Dropout layer used after the input embeddings
         self.dropout = nn.Dropout(dropout)
         # Output layer mapping back to large vocabulary
         self.out = nn.Linear(self.hidden_size, vocab_size)
 
-    def forward(self, *input):
-        pass
+    def forward(self, x, h_0, c):
+        """
+        :param x: input sequence (teacher forced or not) ~(bs, seq)
+        :param h_0: initial hidden state ~(bs, n_dir*n_layers, size)
+        :param c: encoder output
+
+        :return: out ~(bs, seq, n_dir, size): output features h_t from the last layer, for each t
+                 h ~(bs, n_layers, n_dir, size): hidden state for t = seq_len
+                 attn_weights
+        """
+        x = self.embedding(x)  # ~(bs, seq, size)
+        x = self.dropout(x)
+
+        att_weights = F.softmax(
+            self.attn(torch.cat((x, h_0), 1)), dim=1
+        )
 
 
 # TODO: continue with online tuto: https://pytorch.org/tutorials/intermediate/seq2seq_translation_tutorial.html#attention-decoder
 # also look at Koustuv code here: https://github.com/koustuvsinha/hred-py/blob/master/hred_pytorch.py
+
+# BETTER TUTO:
+# pytorch tuto notebooks with batch https://github.com/spro/practical-pytorch/tree/master/seq2seq-translation
+# Lucas & Philippe code: https://github.com/placaille/nmt-comp550/tree/master/src
+

@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import copy
 import math
+import unicodedata
 
 from nltk import sent_tokenize, word_tokenize
 
@@ -64,6 +65,24 @@ def scaled_dot_prod_attention(query, key, value, mask=None, dropout=None):
     return torch.matmul(p_attn, value), p_attn
 
 
+def unicode_to_ascii(s):
+    """
+    Turn a Unicode string to plain ASCII
+    thanks to http://stackoverflow.com/a/518232/2809427
+    """
+    return ''.join(
+        c for c in unicodedata.normalize('NFD', s)
+        if unicodedata.category(c) != 'Mn'
+    )
+
+
+def normalize_string(s):
+    """
+    Lowercase, trim, and remove non-letter characters
+    """
+    return unicodeToAscii(s.lower().strip())
+
+
 class Dictionary(object):
     """
     Custom dictionary for word-to-idx and idx-to-word.
@@ -90,10 +109,11 @@ class Corpus(object):
     General object to hold a corpus of text from an input file
     Used in Language modeling.
     """
-    def __init__(self, pad_tag='<pad>', unk_tag='<unk>', eos_tag='<eos>'):
+    def __init__(self, pad_tag='<pad>', unk_tag='<unk>', sos_tag='<sos>', eos_tag='<eos>'):
         self.dictionary = Dictionary()
         self.pad_tag = pad_tag  # pad symbol
         self.unk_tag = unk_tag  # unknown word
+        self.sos_tag = sos_tag  # start-of-sentence tag
         self.eos_tag = eos_tag  # end-of-sentence tag
         self.dictionary.add_word(self.pad_tag)
         self.dictionary.add_word(self.unk_tag)
@@ -116,7 +136,8 @@ class Corpus(object):
                 tokens = 0  # number of tokens in each line
                 sents = sent_tokenize(line)  # list of sentences in this line
                 for sent in sents:
-                    words = word_tokenize(sent) + [self.eos_tag]  # list of words in this sentence
+                    sent = normalizeString(sent)  # lowercase, strip, to ascii
+                    words = [self.sos_tag] + word_tokenize(sent) + [self.eos_tag]  # list of words in this sentence
                     tokens += len(words)
                     for word in words:
                         self.dictionary.add_word(word)
@@ -138,7 +159,8 @@ class Corpus(object):
                 j = 0  # token number
                 sents = sent_tokenize(line)
                 for sent in sents:
-                    words = word_tokenize(sent) + [self.eos_tag]
+                    sent = normalize_string(sent)  # lowercase, strip, to ascii
+                    words = [self.sos_tag] + word_tokenize(sent) + [self.eos_tag]
                     for word in words:
                         ids[i, j] = self.dictionary.word2idx[word]
                         j += 1
@@ -176,5 +198,3 @@ class Corpus(object):
                 idx_sent.append(idx_word)
             idx.append(idx_sent)
         return idx
-
-
