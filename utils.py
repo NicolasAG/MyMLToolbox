@@ -80,7 +80,7 @@ def normalize_string(s):
     """
     Lowercase, trim, and remove non-letter characters
     """
-    return unicodeToAscii(s.lower().strip())
+    return unicode_to_ascii(s.lower().strip())
 
 
 class Dictionary(object):
@@ -93,11 +93,45 @@ class Dictionary(object):
         self.word2idx = {}
         self.idx2word = {}
         self.idx = 0
+        self.word2cnt = {}
+        self.trimmed = False  # flag for trimmed vocab
 
     def add_word(self, word):
         if word not in self.word2idx:
             self.word2idx[word] = self.idx
+            self.word2cnt[word] = 1
             self.idx2word[self.idx] = word
+            self.idx += 1
+        else:
+            self.word2cnt[word] += 1
+
+    def trim(self, min_count):
+        """
+        Remove words below a certain count threshold
+        :param min_count: threshold
+        """
+        if self.trimmed: return  # if already trimmed, return
+        self.trimmed = True  # flag to true so that we don't do it again
+
+        keep_words = []
+
+        for w, c in self.word2cnt.items():
+            if c >= min_count:
+                keep_words.append({'w': w, 'c': c, 'idx': self.word2idx[w]})
+
+        print("keeping %d words from %d = %.4f" % (
+            len(keep_words), len(self.word2idx), len(keep_words) / len(self.word2idx)
+        ))
+
+        # Reinitialize dictionaries
+        self.word2idx = {}
+        self.idx2word = {}
+        self.word2cnt = {}
+        self.idx = 0
+        for e in keep_words:
+            self.word2idx[e['w']] = e['idx']
+            self.word2cnt[e['w']] = e['c']
+            self.idx2word[e['idx']] = e['w']
             self.idx += 1
 
     def __len__(self):
@@ -122,7 +156,7 @@ class Corpus(object):
     def get_data(self, path):
         """
         :param path: path to a readable file
-        :return: one batch of examples where each example is a line of idx
+        :return: one batch of examples where each example is a line of idx ~(n_lines, max_len)
         """
         # Add words to the dictionary
         with open(path, 'r') as f:
@@ -136,7 +170,7 @@ class Corpus(object):
                 tokens = 0  # number of tokens in each line
                 sents = sent_tokenize(line)  # list of sentences in this line
                 for sent in sents:
-                    sent = normalizeString(sent)  # lowercase, strip, to ascii
+                    sent = normalize_string(sent)  # lowercase, strip, to ascii
                     words = [self.sos_tag] + word_tokenize(sent) + [self.eos_tag]  # list of words in this sentence
                     tokens += len(words)
                     for word in words:
@@ -198,3 +232,15 @@ class Corpus(object):
                 idx_sent.append(idx_word)
             idx.append(idx_sent)
         return idx
+
+
+class AttentionModule(nn.Module):
+    """
+    Compute attention weights for a given hidden state (h_t) and a list of encoder outputs (outs)
+    Different modes available: concat, general, dot
+    """
+    # TODO: continue tuto here:
+    # https://github.com/spro/practical-pytorch/blob/master/seq2seq-translation/seq2seq-translation-batched.ipynb
+    # https://render.githubusercontent.com/view/ipynb?commit=c520c52e68e945d88fff563dba1c028b6ec0197b&enc_url=68747470733a2f2f7261772e67697468756275736572636f6e74656e742e636f6d2f7370726f2f70726163746963616c2d7079746f7263682f633532306335326536386539343564383866666635363364626131633032386236656330313937622f736571327365712d7472616e736c6174696f6e2f736571327365712d7472616e736c6174696f6e2d626174636865642e6970796e62&nwo=spro%2Fpractical-pytorch&path=seq2seq-translation%2Fseq2seq-translation-batched.ipynb&repository_id=79684696&repository_type=Repository#Implementing-an-attention-module
+
+
