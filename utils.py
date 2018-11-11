@@ -110,7 +110,8 @@ class Dictionary(object):
         Remove words below a certain count threshold
         :param min_count: threshold
         """
-        if self.trimmed: return  # if already trimmed, return
+        if self.trimmed:  # if already trimmed, return
+            return
         self.trimmed = True  # flag to true so that we don't do it again
 
         keep_words = []
@@ -237,10 +238,88 @@ class Corpus(object):
 class AttentionModule(nn.Module):
     """
     Compute attention weights for a given hidden state (h_t) and a list of encoder outputs (outs)
-    Different modes available: concat, general, dot
+    Different modes available: dot, general, concat
+
+    Tutorial: https://github.com/spro/practical-pytorch/blob/master/seq2seq-translation/seq2seq-translation-batched.ipynb
+              |_> "Implementing an attention module"
     """
-    # TODO: continue tuto here:
-    # https://github.com/spro/practical-pytorch/blob/master/seq2seq-translation/seq2seq-translation-batched.ipynb
-    # https://render.githubusercontent.com/view/ipynb?commit=c520c52e68e945d88fff563dba1c028b6ec0197b&enc_url=68747470733a2f2f7261772e67697468756275736572636f6e74656e742e636f6d2f7370726f2f70726163746963616c2d7079746f7263682f633532306335326536386539343564383866666635363364626131633032386236656330313937622f736571327365712d7472616e736c6174696f6e2f736571327365712d7472616e736c6174696f6e2d626174636865642e6970796e62&nwo=spro%2Fpractical-pytorch&path=seq2seq-translation%2Fseq2seq-translation-batched.ipynb&repository_id=79684696&repository_type=Repository#Implementing-an-attention-module
+    def __init__(self, decoder_size, encoder_size, method='general'):
+        """
+        :param decoder_size: size of the decoder hidden state
+        :param encoder_size: size of the encoder hidden state
+        :param method: 'dot' or 'general' or 'concat'
+        """
+        super(AttentionModule, self).__init__()
 
+        assert method.lower().strip() in ['concat', 'general', 'dot']
+        self.method = method.lower().strip()
 
+        # wn = lambda x: nn.utils.weight_norm(x)
+
+        if self.method == 'general':
+            self.attn = nn.Linear(encoder_size, decoder_size)
+
+        elif self.method == 'concat':
+            self.attn = nn.Linear(encoder_size + decoder_size, decoder_size)
+            self.v = nn.Linear(decoder_size, 1)
+
+    def forward(self, h_t, outs):
+        """
+        :param h_t: hidden state of the decoder ~(bs, dec_seq=1, dec_size)
+        :param outs: output vectors of the encoder ~(bs, enc_seq, enc_size)
+        :return attention weights: ~(bs, dec_seq=1, enc_seq)
+        """
+
+        # make sure inputs have the same batch size
+        assert h_t.size(0) == outs.size(0)
+        # make sure inputs have the same number of dimensions
+        assert len(h_t.size()) == len(outs.size()) == 3
+
+        if self.method == 'dot':
+            # make sure inputs have the same hidden size
+            assert h_t.size(2) == outs.size(2)
+            # swap (transpose) dimension 1 & 2 of outs
+            tmp_outs = outs.permute(0, 2, 1)  # ~(bs, hid_size, enc_seq)
+
+            # bmm performs a batch dot product between 2 tensors of 3D
+            # h_t~(bs, 1, hid_size) DOT tmp_outs~(bs, hid_size, enc_seq)
+            grid = torch.bmm(h_t, tmp_outs)   # ~(bs, dec_seq=1, enc_seq)
+
+            del tmp_outs
+
+        elif self.method == 'general':
+            tmp_outs = self.attn(outs)            # ~(bs, enc_seq, dec_size)
+            # swap (transpose) dimension 1 & 2
+            tmp_outs = tmp_outs.permute(0, 2, 1)  # ~(bs, dec_size, enc_seq)
+
+            # bmm performs a batch dot product between 2 tensors of 3D
+            # h_t~(bs, 1, dec_size) DOT tmp_outs~(bs, dec_size, enc_seq)
+            grid = torch.bmm(h_t, tmp_outs)       # (bs, dec_seq=1, enc_seq)
+
+            del tmp_outs
+
+        elif self.method == 'concat':
+            # expand h_t to be of same sequence_length as outs
+            # (bs, 1, dec_size) --> ~(bs, enc_seq, dec_size)
+            tmp_h_t = h_t.expand((h_t.size(0), outs.size(1), h_t.size(2)))
+
+            # concatenate tmp_h_t and outs along the hidden_size dim
+            concat = torch.cat((tmp_h_t, encoder_outputs), 2)  # ~(bs, enc_seq, dec_size + enc_size)
+
+            concat = self.attn(concat)    # ~(bs, enc_seq, dec_size)
+            grid = self.v(concat)         # ~(bs, enc_seq, 1)
+            grid = grid.permute(0, 2, 1)  # ~(bs, dec_seq=1, enc_seq)
+
+            del tmp_h_t, concat
+
+        # grid is now of shape ~(bs, dec_seq=1, enc_seq)
+
+        attn_weights = F.softmax(grid, dim=2)  # ~(bs, dec_seq=1, enc_seq)
+
+        # make sure to compute softmax over valid tokens only
+        mask = (grid != 0).float()                          # ~(bs, dec_seq=1, enc_seq)
+        attn_weights *= mask                                # ~(bs, dec_seq=1, enc_seq)
+        normalizer = attn_weights.sum(dim=2, keepdim=True)  # ~(bs, dec_seq=1, 1)
+        attn_weights /= normalizer                          # ~(bs, dec_seq=1, enc_seq)
+
+        return attn_weights  # ~(bs, dec_seq=1, enc_seq)
