@@ -83,6 +83,37 @@ def normalize_string(s):
     return unicode_to_ascii(s.lower().strip())
 
 
+def undo_word_tokenizer(tokens, symbol):
+    symbols = word_tokenize(symbol)
+    j = 0  # index going through symbols
+
+    new_words = []  # list of new tokens to be returned
+    tmp_w = ''  # tmp string to store tokens we try to match
+
+    for t in tokens:
+        # match, save token & move pointer to the right
+        if t == symbols[j]:
+            tmp_w += t + ' '  # save this token in the tmp_word
+            j += 1            # move pointer of symbols to the right
+
+            # find a complete match! add token & reset
+            if j >= len(symbols):
+                new_words.append(tmp_w.replace(' ', ''))
+                tmp_w = ''  # reset tmp_word
+                j = 0       # reset pointer of symbols
+
+        # no match, reset
+        else:
+            if len(tmp_w) > 0:
+                # save the previous tokens we tried to match
+                new_words.extend(word_tokenize(tmp_w))
+            new_words.append(t)  # save this token
+            tmp_w = ''           # reset tmp_word
+            j = 0                # reset pointer of symbols
+
+    return new_words
+
+
 class Dictionary(object):
     """
     Custom dictionary for word-to-idx and idx-to-word.
@@ -157,55 +188,57 @@ class Corpus(object):
     def get_data(self, path):
         """
         :param path: path to a readable file
-        :return: one batch of examples where each example is a line of idx ~(n_lines, max_len)
+        :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
-        # Add words to the dictionary
+        src = []  # list of contexts
+        tgt = []  # list of next sentences
+
         with open(path, 'r') as f:
-            lines = 0
-            max_len = 0
             for line in f:
+
                 # skip empty lines
                 if len(line.strip().split()) == 0:
                     continue
 
-                tokens = 0  # number of tokens in each line
-                sents = sent_tokenize(line)  # list of sentences in this line
-                for sent in sents:
-                    sent = normalize_string(sent)  # lowercase, strip, to ascii
-                    words = [self.sos_tag] + word_tokenize(sent) + [self.eos_tag]  # list of words in this sentence
-                    tokens += len(words)
-                    for word in words:
+                sentences = sent_tokenize(line)  # list of sentences in this line
+
+                # for all sentences except but the last one,
+                # add words to dictionary & make a (src - tgt) pair
+                for s_id in range(len(sentences) - 1):
+                    # lowercase, strip, to ascii
+                    src_sents = normalize_string(  # take all sentences before i+1 as src
+                        (' ' + self.eos_tag + ' ' + self.sos_tag + ' ').join(sentences[:s_id+1])
+                    )
+                    tgt_sent = normalize_string(sentences[s_id+1])
+
+                    # list of words in the sentences
+                    src_words = [self.sos_tag] + word_tokenize(src_sents) + [self.eos_tag]
+                    src_words = undo_word_tokenizer(src_words, self.sos_tag)
+                    src_words = undo_word_tokenizer(src_words, self.eos_tag)
+
+                    tgt_words = [self.sos_tag] + word_tokenize(tgt_sent) + [self.eos_tag]
+                    tgt_words = undo_word_tokenizer(tgt_words, self.sos_tag)
+                    tgt_words = undo_word_tokenizer(tgt_words, self.eos_tag)
+
+                    # add words to dictionary
+                    # always add words of the tgt sentences
+                    for word in tgt_words:
                         self.dictionary.add_word(word)
+                    # only add words of the first sentence
+                    if s_id == 0:
+                        for word in src_words:
+                            self.dictionary.add_word(word)
 
-                # keep track of longest line
-                if tokens > max_len:
-                    max_len = tokens
-                lines += 1
+                    src.append(' '.join(src_words))
+                    tgt.append(' '.join(tgt_words))
 
-        # Tokenize the file content
-        ids = torch.LongTensor(lines, max_len).fill_(self.dictionary.word2idx[self.pad_tag])
-        with open(path, 'r') as f:
-            i = 0  # line number
-            for line in f:
-                # skip empty lines
-                if len(line.strip().split()) == 0:
-                    continue
-
-                j = 0  # token number
-                sents = sent_tokenize(line)
-                for sent in sents:
-                    sent = normalize_string(sent)  # lowercase, strip, to ascii
-                    words = [self.sos_tag] + word_tokenize(sent) + [self.eos_tag]
-                    for word in words:
-                        ids[i, j] = self.dictionary.word2idx[word]
-                        j += 1
-                i += 1
-
-        return ids
+        return src, tgt
 
     def to_str(self, idx_sents):
         """
         Convert a batch of idx to strings
+        :param idx_sents: list of idx sentence [ [id1 id2 id3], ..., [id1 id2 id3] ]
+        :return strings: list of sentences [ "w1 w2 w3", ..., "w1 w2 w3" ]
         """
         if isinstance(idx_sents, torch.Tensor):
             idx_sents = idx_sents.numpy()
@@ -221,6 +254,8 @@ class Corpus(object):
     def to_idx(self, str_sents):
         """
         Convert a batch of strings to idx
+        :param str_sents: list of sentences [ "w1 w2 w3", ..., "w1 w2 w3" ]
+        :return idx: list of idx sentences [ [id1 id2 id3], ..., [id1 id2 id3] ]
         """
         idx = []
         for str_sent in str_sents:
@@ -233,6 +268,14 @@ class Corpus(object):
                 idx_sent.append(idx_word)
             idx.append(idx_sent)
         return idx
+
+    def fill_seq(self, seq, max_len, fill_token=self.pad_tag):
+        """
+        Pad a sequence with a fill_token until the seq reaches max_len
+        """
+        padded_seq = copy.copy(seq)
+        padded_seq += [fill_token] * (max_len - len(seq))
+        return padded_seq
 
 
 class AttentionModule(nn.Module):
@@ -323,3 +366,11 @@ class AttentionModule(nn.Module):
         attn_weights /= normalizer                          # ~(bs, dec_seq=1, enc_seq)
 
         return attn_weights  # ~(bs, dec_seq=1, enc_seq)
+
+
+def set_gradient(model, value):
+    """
+    Make all parameters of the model trainable or not
+    """
+    for p in model.parameters():
+        p.requires_grad = value
