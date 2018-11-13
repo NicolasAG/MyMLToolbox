@@ -269,10 +269,12 @@ class Corpus(object):
             idx.append(idx_sent)
         return idx
 
-    def fill_seq(self, seq, max_len, fill_token=self.pad_tag):
+    def fill_seq(self, seq, max_len, fill_token=None):
         """
         Pad a sequence with a fill_token until the seq reaches max_len
         """
+        if fill_token is None:
+            fill_token = self.dictionary.word2idx[self.pad_tag]
         padded_seq = copy.copy(seq)
         padded_seq += [fill_token] * (max_len - len(seq))
         return padded_seq
@@ -374,3 +376,26 @@ def set_gradient(model, value):
     """
     for p in model.parameters():
         p.requires_grad = value
+
+
+def separate_list(array, separator):
+    """
+    Split an array of idx around a separator of any length
+    :param array: list of idx [0,a,b,c,1, ..., 0,a,b,c,1]
+    :param separator: list of separator tokens [1]
+    :return: a list of list [ [0,a,b,c], [...], [0,a,b,c], []]
+
+    See: https://stackoverflow.com/a/34732203
+    """
+    results = []
+    a = array[:]
+    i = 0
+    while i <= len(a) - len(separator):
+        if a[i: i+len(separator)] == separator:
+            results.append(a[:i])
+            a = a[i+len(separator):]
+            i = 0
+        else:
+            i += 1
+    results.append(a)
+    return results

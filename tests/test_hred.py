@@ -12,8 +12,6 @@ https://pytorch.org/tutorials/intermediate/seq2seq_translation_tutorial.html
 
 Lucas code:
 https://github.com/placaille/nmt-comp550/tree/master/src
-
-
 """
 import numpy as np
 import torch
@@ -25,8 +23,8 @@ import time
 import sys
 sys.path.append('..')
 
-from utils import Dictionary, Corpus, set_gradient
-from hred import build_model
+from utils import Dictionary, Corpus, set_gradient, separate_list
+from models.hred import build_model
 
 
 def minibatch_generator(bs, src, tgt, corpus, shuffle=True):
@@ -37,6 +35,11 @@ def minibatch_generator(bs, src, tgt, corpus, shuffle=True):
     :param tgt: list of tgt sentences
     :param corpus: utils.Corpus object
     """
+    # Note: in HRED, we first encode each sentences *independently*,
+    # then we encode the list of sentences as different contexts.
+    # We make the decision that 'bs' represents the number of contexts in a batch,
+    # hence, the number of sentences might be much greater (bs_sent >> bs).
+
     # transform string sentences into idx sentences
     src = corpus.to_idx(src)
     tgt = corpus.to_idx(tgt)
@@ -48,10 +51,12 @@ def minibatch_generator(bs, src, tgt, corpus, shuffle=True):
         random.shuffle(indices)
 
     while nb_elem > 0:  # while number there are still some items left
-        b_src = []  # batch sources
-        b_tgt = []  # batch targets
-        len_src = []  # lengths of sources
-        len_tgt = []  # lengths of targets
+        b_src_pp = []    # batch of individual sentences
+        len_src_pp = []  # number of tokens in each sentence
+        len_src = []     # number of sentences for each context
+
+        b_tgt = []       # batch of target sentences
+        len_tgt = []     # number of tokens in target sentences
 
         count = 0  # number of items in a batch
         while count < bs and nb_elem > 0:
@@ -59,19 +64,29 @@ def minibatch_generator(bs, src, tgt, corpus, shuffle=True):
             count += 1           # will add 1 item to a batch
             nb_elem -= 1         # one item was removed from all
 
-            b_src.append(src[ind])
-            b_tgt.append(tgt[ind])
-            len_src.append(len(src[ind]))
-            len_tgt.append(len(tgt[ind]))
+            context = src[ind]
+            target  = tgt[ind]
+
+            # split sentences around each " <eos>"
+            sentences = separate_list(context, [corpus.dictionary.word2idx[corpus.eos_tag]])
+            # add <eos> back to all sentences except empty ones
+            sentences = [s + [corpus.dictionary.word2idx[corpus.eos_tag]] for s in sentences if len(s) > 0]
+
+            b_src_pp.extend(sentences)      # add a bunch of individual sentences
+            len_src_pp.extend([len(s) for s in sentences])  # add a bunch of sentence lengths
+            len_src.append(len(sentences))  # number of sentences in this context
+            b_tgt.append(target)            # append target sentence
+            len_tgt.append(len(target))     # number of tokens in target sentence
 
         # Fill in shorter sentences to make a tensor
-        max_src = max(len_src)  # max length of source sentences
-        max_tgt = max(len_tgt)  # max length of target sentences
+        max_src_pp = max(len_src_pp)  # max length of source sentences
+        max_tgt    = max(len_tgt)     # max length of target sentences
 
-        b_src = [corpus.fill_seq(seq, max_src) for seq in b_src]
+        b_src_pp = [corpus.fill_seq(seq, max_src_pp) for seq in b_src_pp]
         b_tgt = [corpus.fill_seq(seq, max_tgt) for seq in b_tgt]
 
         # Sort the lists by len_src for pack_padded_sentence later
+        '''
         b_sorted = [
             (bs, bt, ls, lt) for (bs, bt, ls, lt) in sorted(
                 zip(b_src, b_tgt, len_src, len_tgt),
@@ -81,28 +96,197 @@ def minibatch_generator(bs, src, tgt, corpus, shuffle=True):
         ]
         # unzip to individual listss
         b_src, b_tgt, len_src, len_tgt = zip(*b_sorted)
+        '''
 
-        b_src = torch.LongTensor(b_src)  # ~(bs, seq_len)
-        b_tgt = torch.LongTensor(b_tgt)  # ~(bs, seq_len)
-        yield b_src, b_tgt, len_src, len_tgt
+        b_src_pp = torch.LongTensor(b_src_pp)  # ~(bs, seq_len)
+        b_tgt = torch.LongTensor(b_tgt)        # ~(bs, seq_len)
+        yield b_src_pp, b_tgt, len_src_pp, len_src, len_tgt
 
 
-if __name__ == '__main__':
+def perform_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None, beam_size=0):
+    """
+    Perform a training or validation step over 1 batch
+    :param sent_enc: sentence encoder (see hred.SentenceEncoder)
+    :param cont_enc: context encoder (see hred.ContextEncoder
+    :param decoder: decoder (see hred.HREDDecoder or hred.AttentionDecoder)
+    :param batch: batch of (src, tgt) pairs
+    :param corpus: utils.Corpus object that hold vocab
+    :param optimizer: if specified, do a training step otherwise evaluate
+    :param beam_size: if specified, decode using beam search. no training.
+    """
+    b_src_pp, b_tgt, len_src_pp, len_src, len_tgt = batch
+    # move to GPU
+    b_src_pp = b_src_pp.to(device)
+    b_tgt = b_tgt.to(device)
 
-    batch_size = 8
-    max_epoch = 10
-    patience = 10
+    max_src_pp = b_src_pp.size(1)  # max number of tokens in source sentences
+    bs_pp      = b_src_pp.size(0)  # extended batch size (bcs of each individual sentences)
+    max_tgt    = b_tgt.size(1)     # max number of tokens in target sentences
+    bs         = b_tgt.size(0)     # actual batch size of contexts
+    assert bs == len(len_src)
+    max_src = max(len_src)         # max number of sentences in one context
 
-    ##########################################################################
-    # Device configuration
-    ##########################################################################
-    if torch.cuda.is_available():
-        device = torch.device('cuda')
-        device_idx = torch.cuda.current_device()
-        print("\nUsing GPU", torch.cuda.get_device_name(device_idx))
+    loss = 0.0
+    use_teacher_forcing = False  # do not feed in ground truth token to decoder
+
+    # Reset gradients & use teacher forcing (in training mode)
+    if optimizer:
+        optimizer.zero_grad()
+        try:
+            tf_prob = args.teacher_forcing_prob
+        except NameError:
+            tf_prob = teacher_forcing_prob
+        if random.random() < tf_prob:
+            use_teacher_forcing = True
+
+    # Initialize hidden state of encoders and decoder
+    sent_enc_h0 = sent_enc.init_hidden(bs_pp)
+    cont_enc_h0 = cont_enc.init_hidden(bs)
+    dec_h0 = decoder.init_hidden(bs)  # can be initialized to 0 since we pass the context
+                                      # at each time step no matter what
+
+    ##########################
+    # SENTENCE ENCODER
+    ##########################
+    # sentence encoder takes in: x       ~(bs, seq)
+    #                            lengths ~(bs)
+    #                            h_0     ~(bs, n_dir*n_layers, size)
+    sent_enc_out, _ = sent_enc(b_src_pp, len_src_pp, sent_enc_h0)
+    # and returns: sent_enc_out ~(bs_pp, seq, n_dir*size)
+    #              sent_enc_ht  ~(bs_pp, n_dir*n_layers, size)
+
+    # grab the encoding of the sentence at its last time step
+    sent_enc_out = sent_enc_out[
+        range(sent_enc_out.size(0)),           # take each sentence
+        list(map(lambda l: l-1, len_src_pp)),  # take t = len(s)-1
+        :                                      # take full encoding (ie: n_dir * size)
+    ]  # ~(bs_pp, n_dir * size)
+
+    # Put back together the sentences belonging to the same context
+    b_src = torch.zeros(bs, max_src, sent_enc_out.size(1)).to(device)
+    # ^ this will be the input to the context encoder ~(bs, seq, size)
+    batch_pp_index = 0  # keep track of where we are in the batch++ of individual sentences
+    for batch_index, length in enumerate(len_src):
+        b_src[batch_index, 0:length, :] = sent_enc_out[batch_pp_index: batch_pp_index+length]
+        batch_pp_index += length
+
+    ##########################
+    # CONTEXT ENCODER
+    ##########################
+    # context encoder takes in: x       ~(bs, seq, size)
+    #                           lengths ~(bs)
+    #                           h_0     ~(bs, n_dir*n_layers, size)
+    cont_enc_out, cont_enc_ht = cont_enc(b_src, len_src, cont_enc_h0)
+    # and returns: cont_enc_out ~(bs, seq, n_dir*size)
+    #              cont_enc_ht  ~(bs, n_dir*n_layers, size)
+
+    # grab the last hidden state of each layer to feed in each time step of the decoder as the 'context'
+    if cont_enc.rnn_type == 'lstm':
+        # split lstm state into hidden state and cell state
+        cont_enc_ht, cont_enc_ct = cont_enc_ht
+        cont_enc_ht = cont_enc_ht.view(
+            cont_enc_ht.size(0),                  # bs
+            cont_enc.n_layers,                    # n_layers
+            cont_enc.n_dir * cont_enc_ht.size(2)  # n_dir*size
+        )
+        cont_enc_ct = cont_enc_ct.view(
+            cont_enc_ct.size(0),                  # bs
+            cont_enc.n_layers,                    # n_layers
+            cont_enc.n_dir * cont_enc_ct.size(2)  # n_dir*size
+        )
+        cont_enc_ht = (cont_enc_ht, cont_enc_ct)
     else:
-        device = torch.device('cpu')
-        print("\nNo GPU available :(")
+        cont_enc_ht = cont_enc_ht.view(
+            cont_enc_ht.size(0),                  # bs
+            cont_enc.n_layers,                    # n_layers
+            cont_enc.n_dir * cont_enc_ht.size(2)  # n_dir*size
+        )
+
+    ##########################
+    # PREPARE DECODER
+    ##########################
+    # initial hidden state of decoder
+    dec_hid = dec_h0
+    # Create SOS tokens for decoder input
+    dec_input = torch.LongTensor([corpus.dictionary.word2idx[corpus.sos_tag]] * bs)  # ~(bs)
+    # Create tensor that will hold all the outputs of the decoder
+    dec_outputs = torch.zeros(bs, max_tgt, decoder.vocab_size)  # ~(bs, seq, vocab)
+    predictions = torch.zeros(bs, max_tgt).long()               # ~(bs, seq)
+    # Create tensor that will hold all the attention weights
+    decoder_attentions = torch.zeros(bs, max_src, max_tgt)
+
+    # move tensors to GPU
+    dec_input = dec_input.to(device)
+    dec_outputs = dec_outputs.to(device)
+    predictions = predictions.to(device)
+
+    ###############
+    # BEAM SEARCH #
+    ###############
+    if beam_size > 0:
+        # TODO: https://github.com/placaille/nmt-comp550/blob/master/src/utils.py#L197
+        '''
+        beam_searcher = BSWrapper(
+            decoder, dec_hid, bs, args.max_length if args else max_length, beam_size, cont_enc_out
+        )
+        preds = torch.LongTensor(beam_searcher.decode())
+        '''
+        return None, predictions, None
+
+    ##########
+    # DECODE #
+    ##########
+    else:
+        # decode the target sentence
+        for step in xrange(max_tgt):
+
+            # decoder takes in: x        ~(bs)
+            #                   h_tm1    ~(bs, n_layers, hidden_size)
+            #                   context  ~(bs, n_layers, n_dir*size)
+            #                   enc_outs ~(bs, enc_seq, n_dir*size)
+            dec_out, dec_hid, attn_weights = decoder(dec_input, dec_hid, cont_enc_ht, cont_enc_out)
+            # and returns: dec_out      ~(bs, vocab_size)
+            #              dec_hid      ~(bs, n_layers, hidden_size)
+            #              attn_weights ~(bs, seq=1, enc_seq)
+
+            if attn_weights is not None:
+                decoder_attentions[:, :attn_weights.size(2), step] += attn_weights.squeeze(1).cpu()
+
+            # get highest scoring token and value
+            top_val, top_idx = dec_out.topk(1, dim=1)  # ~(bs)
+            top_token = top_idx             # ~(bs)
+            if use_teacher_forcing:
+                dec_input = b_tgt[:, step]  # ~(bs)
+            else:
+                dec_input = top_token       # ~(bs)
+
+            # store outputs and tokens for later loss computing
+            dec_outputs[:, step, :] = dec_out
+            predictions[:, step] = top_token
+
+        loss = masked_cross_entropy()
+
+        # update parameters
+        if optimizer:
+            loss.backward()
+            try:
+                clip = args.clip
+            except NameError:
+                pass
+            if clip > 0.0:
+                torch.nn.utils.clip_grad_norm_(sent_enc.parameters(), clip)
+                torch.nn.utils.clip_grad_norm_(cont_enc.parameters(), clip)
+                torch.nn.utils.clip_grad_norm_(decoder.parameters(), clip)
+            optimizer.step()
+
+    return loss.item(), predictions, decoder_attentions
+
+
+def main():
+    # Hyper-parameters...
+    batch_size = 8
+    max_epoch = 5
+    log_interval = 1  # lo stats every k batch
 
     ##########################################################################
     # Load dataset
@@ -191,7 +375,7 @@ if __name__ == '__main__':
     ##########################################################################
     # Training code
     ##########################################################################
-    print("\nStarting training...")
+    print("\nStart training...")
 
     best_val_loss = float('inf')
     best_epoch = 0
@@ -212,21 +396,37 @@ if __name__ == '__main__':
         start_time = time.time()
 
         for n_batch, batch in enumerate(train_batches):
-            ###
-            # STEP
-            # https://github.com/placaille/nmt-comp550/blob/master/src/main.py#L231
-            ###
-            loss, _, _ = step()  # TODO: implement that! https://github.com/placaille/nmt-comp550/blob/master/src/utils.py#L111
-
+            loss, predictions, attentions = perform_one_batch(
+                sentence_encoder, context_encoder, decoder, batch, corpus, optimizer
+            )
             total_loss += loss
-            if n_batch % 10 == 0:
-                current_loss = total_loss / 10
+
+            if n_batch % log_interval == 0:
+                current_loss = total_loss / log_interval
                 elapsed = time.time() - start_time
                 print("| epoch %3d | %3d/%3d batches | ms/batch %6f | loss %6f | ppl %6f" % (
-                    epoch, n_batch, num_train_batches, elapsed*1000 / 10, current_loss, np.exp(current_loss)
+                    epoch, n_batch, num_train_batches, elapsed*1000/log_interval, current_loss, np.exp(current_loss)
                 ))
                 total_loss = 0
                 start_time = time.time()
 
         # TODO: continue from here: https://github.com/placaille/nmt-comp550/blob/master/src/main.py#L257
+        # valid_loss, _ = evaluate()
 
+
+if __name__ == '__main__':
+    # Hyper-parameters...
+    teacher_forcing_prob = 0.99  # used in step()
+    max_length = 100             # used in step() for beam search
+    clip = 0.25                  # used in step() for clipping gradient norm
+
+    # Device configuration
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+        device_idx = torch.cuda.current_device()
+        print("\nUsing GPU", torch.cuda.get_device_name(device_idx))
+    else:
+        device = torch.device('cpu')
+        print("\nNo GPU available :(")
+
+    main()
