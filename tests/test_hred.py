@@ -23,7 +23,7 @@ import time
 import sys
 sys.path.append('..')
 
-from utils import Dictionary, Corpus, set_gradient, separate_list
+from utils import Dictionary, Corpus, set_gradient, split_list, masked_cross_entropy
 from models.hred import build_model
 
 
@@ -68,7 +68,7 @@ def minibatch_generator(bs, src, tgt, corpus, shuffle=True):
             target  = tgt[ind]
 
             # split sentences around each " <eos>"
-            sentences = separate_list(context, [corpus.dictionary.word2idx[corpus.eos_tag]])
+            sentences = split_list(context, [corpus.dictionary.word2idx[corpus.eos_tag]])
             # add <eos> back to all sentences except empty ones
             sentences = [s + [corpus.dictionary.word2idx[corpus.eos_tag]] for s in sentences if len(s) > 0]
 
@@ -103,7 +103,7 @@ def minibatch_generator(bs, src, tgt, corpus, shuffle=True):
         yield b_src_pp, b_tgt, len_src_pp, len_src, len_tgt
 
 
-def perform_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None, beam_size=0):
+def process_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None, beam_size=0):
     """
     Perform a training or validation step over 1 batch
     :param sent_enc: sentence encoder (see hred.SentenceEncoder)
@@ -126,18 +126,9 @@ def perform_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
     assert bs == len(len_src)
     max_src = max(len_src)         # max number of sentences in one context
 
-    loss = 0.0
-    use_teacher_forcing = False  # do not feed in ground truth token to decoder
-
     # Reset gradients & use teacher forcing (in training mode)
     if optimizer:
         optimizer.zero_grad()
-        try:
-            tf_prob = args.teacher_forcing_prob
-        except NameError:
-            tf_prob = teacher_forcing_prob
-        if random.random() < tf_prob:
-            use_teacher_forcing = True
 
     # Initialize hidden state of encoders and decoder
     sent_enc_h0 = sent_enc.init_hidden(bs_pp)
@@ -150,10 +141,10 @@ def perform_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
     ##########################
     # sentence encoder takes in: x       ~(bs, seq)
     #                            lengths ~(bs)
-    #                            h_0     ~(bs, n_dir*n_layers, size)
+    #                            h_0     ~(n_dir*n_layers, bs, size)
     sent_enc_out, _ = sent_enc(b_src_pp, len_src_pp, sent_enc_h0)
     # and returns: sent_enc_out ~(bs_pp, seq, n_dir*size)
-    #              sent_enc_ht  ~(bs_pp, n_dir*n_layers, size)
+    #              sent_enc_ht  ~(n_dir*n_layers, bs_pp, size)
 
     # grab the encoding of the sentence at its last time step
     sent_enc_out = sent_enc_out[
@@ -175,32 +166,21 @@ def perform_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
     ##########################
     # context encoder takes in: x       ~(bs, seq, size)
     #                           lengths ~(bs)
-    #                           h_0     ~(bs, n_dir*n_layers, size)
+    #                           h_0     ~(n_dir*n_layers, bs, size)
     cont_enc_out, cont_enc_ht = cont_enc(b_src, len_src, cont_enc_h0)
     # and returns: cont_enc_out ~(bs, seq, n_dir*size)
-    #              cont_enc_ht  ~(bs, n_dir*n_layers, size)
+    #              cont_enc_ht  ~(n_dir*n_layers, bs, size)
+
+    # split lstm state into hidden state and cell state
+    if cont_enc.rnn_type == 'lstm':
+        cont_enc_ht, cont_enc_ct = cont_enc_ht
 
     # grab the last hidden state of each layer to feed in each time step of the decoder as the 'context'
-    if cont_enc.rnn_type == 'lstm':
-        # split lstm state into hidden state and cell state
-        cont_enc_ht, cont_enc_ct = cont_enc_ht
-        cont_enc_ht = cont_enc_ht.view(
-            cont_enc_ht.size(0),                  # bs
-            cont_enc.n_layers,                    # n_layers
-            cont_enc.n_dir * cont_enc_ht.size(2)  # n_dir*size
-        )
-        cont_enc_ct = cont_enc_ct.view(
-            cont_enc_ct.size(0),                  # bs
-            cont_enc.n_layers,                    # n_layers
-            cont_enc.n_dir * cont_enc_ct.size(2)  # n_dir*size
-        )
-        cont_enc_ht = (cont_enc_ht, cont_enc_ct)
-    else:
-        cont_enc_ht = cont_enc_ht.view(
-            cont_enc_ht.size(0),                  # bs
-            cont_enc.n_layers,                    # n_layers
-            cont_enc.n_dir * cont_enc_ht.size(2)  # n_dir*size
-        )
+    cont_enc_ht = cont_enc_ht.view(
+        cont_enc.n_layers,                    # n_layers
+        cont_enc_ht.size(1),                  # bs
+        cont_enc.n_dir * cont_enc_ht.size(2)  # n_dir*size
+    )
 
     ##########################
     # PREPARE DECODER
@@ -237,46 +217,61 @@ def perform_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
     # DECODE #
     ##########
     else:
+        # define teacher forcing proba
+        use_teacher_forcing = False  # do not feed in ground truth token to decoder
+        try:
+            tf_prob = args.teacher_forcing_prob
+        except NameError:
+            tf_prob = teacher_forcing_prob
+
+        if random.random() < tf_prob:
+            use_teacher_forcing = True
+
         # decode the target sentence
-        for step in xrange(max_tgt):
+        for step in range(max_tgt):
 
             # decoder takes in: x        ~(bs)
-            #                   h_tm1    ~(bs, n_layers, hidden_size)
-            #                   context  ~(bs, n_layers, n_dir*size)
+            #                   h_tm1    ~(n_layers, bs, hidden_size)
+            #                   context  ~(n_layers, bs, n_dir*size)
             #                   enc_outs ~(bs, enc_seq, n_dir*size)
             dec_out, dec_hid, attn_weights = decoder(dec_input, dec_hid, cont_enc_ht, cont_enc_out)
             # and returns: dec_out      ~(bs, vocab_size)
-            #              dec_hid      ~(bs, n_layers, hidden_size)
+            #              dec_hid      ~(n_layers, bs, hidden_size)
             #              attn_weights ~(bs, seq=1, enc_seq)
 
             if attn_weights is not None:
                 decoder_attentions[:, :attn_weights.size(2), step] += attn_weights.squeeze(1).cpu()
 
             # get highest scoring token and value
-            top_val, top_idx = dec_out.topk(1, dim=1)  # ~(bs)
-            top_token = top_idx             # ~(bs)
+            top_val, top_idx = dec_out.topk(1, dim=1)  # ~(bs, 1)
+            top_token = top_idx.squeeze()   # ~(bs)
             if use_teacher_forcing:
                 dec_input = b_tgt[:, step]  # ~(bs)
             else:
                 dec_input = top_token       # ~(bs)
 
             # store outputs and tokens for later loss computing
-            dec_outputs[:, step, :] = dec_out
-            predictions[:, step] = top_token
+            dec_outputs[:, step, :] = dec_out  # dec_outputs ~(bs, seq, vocab)
+            predictions[:, step] = top_token   # predictions ~(bs, seq)
 
-        loss = masked_cross_entropy()
+        # compute loss
+        loss = masked_cross_entropy(
+            dec_outputs,                          # ~(bs, seq, vocab)
+            b_tgt,                                # ~(bs, seq)
+            torch.LongTensor(len_tgt).to(device)  # ~(bs)
+        )
 
         # update parameters
         if optimizer:
             loss.backward()
             try:
-                clip = args.clip
+                _clip = args.clip
             except NameError:
-                pass
-            if clip > 0.0:
-                torch.nn.utils.clip_grad_norm_(sent_enc.parameters(), clip)
-                torch.nn.utils.clip_grad_norm_(cont_enc.parameters(), clip)
-                torch.nn.utils.clip_grad_norm_(decoder.parameters(), clip)
+                _clip = clip
+            if _clip > 0.0:
+                torch.nn.utils.clip_grad_norm_(sent_enc.parameters(), _clip)
+                torch.nn.utils.clip_grad_norm_(cont_enc.parameters(), _clip)
+                torch.nn.utils.clip_grad_norm_(decoder.parameters(), _clip)
             optimizer.step()
 
     return loss.item(), predictions, decoder_attentions
@@ -285,7 +280,7 @@ def perform_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
 def main():
     # Hyper-parameters...
     batch_size = 8
-    max_epoch = 5
+    max_epoch = 10
     log_interval = 1  # lo stats every k batch
 
     ##########################################################################
@@ -329,14 +324,6 @@ def main():
     '''
     print("number of testing pairs:", len(test_src))
     print("test batches:", num_test_batches)
-
-    # initialize batches
-    train_batches = minibatch_generator(
-        bs=batch_size, src=train_src, tgt=train_tgt, corpus=corpus, shuffle=True
-    )
-    test_batches = minibatch_generator(
-        bs=batch_size, src=test_src, tgt=test_tgt, corpus=corpus, shuffle=False
-    )
 
     # Save dictionary for generation
     print("saving dictionary...")
@@ -392,11 +379,19 @@ def main():
         set_gradient(context_encoder, True)
         set_gradient(decoder, True)
 
+        # initialize batches
+        train_batches = minibatch_generator(
+            bs=batch_size, src=train_src, tgt=train_tgt, corpus=corpus, shuffle=True
+        )
+        test_batches = minibatch_generator(
+            bs=batch_size, src=test_src, tgt=test_tgt, corpus=corpus, shuffle=False
+        )
+
         total_loss = 0.0
         start_time = time.time()
 
         for n_batch, batch in enumerate(train_batches):
-            loss, predictions, attentions = perform_one_batch(
+            loss, predictions, attentions = process_one_batch(
                 sentence_encoder, context_encoder, decoder, batch, corpus, optimizer
             )
             total_loss += loss
@@ -409,6 +404,7 @@ def main():
                 ))
                 total_loss = 0
                 start_time = time.time()
+        print("-"*80)
 
         # TODO: continue from here: https://github.com/placaille/nmt-comp550/blob/master/src/main.py#L257
         # valid_loss, _ = evaluate()

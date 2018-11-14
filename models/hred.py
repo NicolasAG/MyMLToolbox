@@ -39,8 +39,6 @@ class HREDEncoder(nn.Module):
                 num_layers=self.n_layers,
                 bias=True,
                 batch_first=True,  # input and output tensors are provided as (batch, seq, feature)
-                                    # HOWEVER, IT IS NOT INFLUENCING HIDDEN SIZE VECTORS!! :(
-                                    # TODO: TAKE THIS INTO CONSIDERATION!!
                 dropout=dropout,
                 bidirectional=bidirectional
             )
@@ -52,8 +50,6 @@ class HREDEncoder(nn.Module):
                 num_layers=self.n_layers,
                 bias=True,
                 batch_first=True,  # input and output tensors are provided as (batch, seq, feature)
-                                    # HOWEVER, IT IS NOT INFLUENCING HIDDEN SIZE VECTORS!! :(
-                                    # TODO: TAKE THIS INTO CONSIDERATION!!
                 dropout=dropout,
                 bidirectional=bidirectional
             )
@@ -65,15 +61,15 @@ class HREDEncoder(nn.Module):
         """
         :param x: input sequence of vectors ~(bs, seq, size)
         :param lengths: length of each sequence in x ~(bs)
-        :param h_0: initial hidden state ~(bs, n_dir*n_layers, size)
+        :param h_0: initial hidden state ~(n_dir*n_layers, bs, size)
         :return: out ~(bs, seq, n_dir*size): output features h_t from the last layer, for each t
-                 h ~(bs, n_layers*n_dir, size): hidden state for t = seq_len
+                 h   ~(n_layers*n_dir, bs, size): hidden state for t = seq_len
         """
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # sort input by its length for pack_padded_sequence
         x, sorted_idx, sorted_lengths = self._sort_by_length(
-            x, torch.LongTensor(lengths).to(device)
+            x, torch.LongTensor(lengths).to(device), dim=0
         )
 
         packed = torch.nn.utils.rnn.pack_padded_sequence(x, sorted_lengths, batch_first=True)
@@ -82,24 +78,24 @@ class HREDEncoder(nn.Module):
 
             out, (h_t, c_t) = self.rnn(packed, h_0)
             # unpack (back to padded)
-            out, out_lengths = torch.nn.utils.rnn.pad_packed_sequence(out)
+            out, out_lengths = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True)
             # out ~(bs, seq, n_dir*size)
-            # h_t ~(bs, n_dir*n_layers, size)
-            # c_t ~(bs, n_dir*n_layers, size)
+            # h_t ~(n_dir*n_layers, bs, size)
+            # c_t ~(n_dir*n_layers, bs, size)
 
             # unsort tensor batches to match original input order
-            out = self._unsort_tensor(out, sorted_idx)
-            h_t = self._unsort_tensor(h_t, sorted_idx)
-            c_t = self._unsort_tensor(c_t, sorted_idx)
+            out = self._unsort_tensor(out, sorted_idx, dim=0)
+            h_t = self._unsort_tensor(h_t, sorted_idx, dim=1)  # batch index is on dim 1
+            c_t = self._unsort_tensor(c_t, sorted_idx, dim=1)  # batch index is on dim 1
 
             '''
             # separate the directions with forward and backward being direction 0 and 1 respectively.
             out = out.view(out.size(0), out.size(1), self.n_dir, self.hidden_size)
-            h_t = h_t.view(h_t.size(0), self.n_layers, self.n_dir, self.hidden_size)
-            c_t = c_t.view(c_t.size(0), self.n_layers, self.n_dir, self.hidden_size)
+            h_t = h_t.view(self.n_layers, self.n_dir, h_t.size(1),  self.hidden_size)
+            c_t = c_t.view(self.n_layers, self.n_dir, c_t.size(1), self.hidden_size)
             # out ~(bs, seq, n_dir, size)
-            # h_t ~(bs, n_layers, n_dir, size)
-            # c_t ~(bs, n_layers, n_dir, size)
+            # h_t ~(n_layers, n_dir, bs, size)
+            # c_t ~(n_layers, n_dir, bs, size)
             '''
 
             h_t = (h_t, c_t)  # merge back the lstm unit
@@ -107,59 +103,61 @@ class HREDEncoder(nn.Module):
         else:
             out, h_t = self.rnn(packed, h_0)
             # unpack (back to padded)
-            out, out_lengths = torch.nn.utils.rnn.pad_packed_sequence(out)
+            out, out_lengths = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True)
             # out ~(bs, seq, n_dir*size)
-            # h_t ~(bs, n_dir*n_layers, size)
+            # h_t ~(n_dir*n_layers, bs, size)
 
             # unsort tensor batches to match original input order
-            out = self._unsort_tensor(out, sorted_idx)
-            h_t = self._unsort_tensor(h_t, sorted_idx)
+            out = self._unsort_tensor(out, sorted_idx, dim=0)
+            h_t = self._unsort_tensor(h_t, sorted_idx, dim=1)  # batch index is on dim 1
 
             '''
             # separate the directions with forward and backward being direction 0 and 1 respectively.
             out = out.view(out.size(0), out.size(1), self.n_dir, self.hidden_size)
-            h_t = h_t.view(h_t.size(0), self.n_layers, self.n_dir, self.hidden_size)
+            h_t = h_t.view(self.n_layers, self.n_dir, h_t.size(1), self.hidden_size)
             # out ~(bs, seq, n_dir, size)
-            # h_t ~(bs, n_layers, n_dir, size)
+            # h_t ~(n_layers, n_dir, bs, size)
             '''
 
-        return out, h_t  # ~(bs, seq, n_dir*size) & ~(bs, n_layers*n_dir, size)
+        return out, h_t  # ~(bs, seq, n_dir*size) & ~(n_layers*n_dir, bs, size)
 
-    def _sort_by_length(self, sequence, lengths):
+    def _sort_by_length(self, sequence, lengths, dim=0):
         """
         Sort a Tensor content by the length of each sequence
         :param sequence: LongTensor ~ (bs, ...)
         :param lengths: LongTensor ~ (bs)
+        :param dim: dimension along which the index tensor is applicable (dim of size bs)
         :return: LongTensor with sorted content & list of sorted indices & sorted lengths
         """
         # Sort lengths
         sorted_lengths, sorted_idx = lengths.sort(descending=True)
         # Sort variable tensor by indexing at the sorted_idx
-        sequence = sequence.index_select(0, sorted_idx)
+        sequence = sequence.index_select(dim, sorted_idx)
         return sequence, sorted_idx, sorted_lengths
 
-    def _unsort_tensor(self, sorted_tensor, sorted_idx):
+    def _unsort_tensor(self, sorted_tensor, sorted_idx, dim=0):
         """
         Revert a Tensor to its original order. Undo the `_sort_by_length` function
         :param sorted_tensor: Tensor with content sorted by length ~ (bs, ...)
         :param sorted_idx: list of ordered indices ~ (bs)
+        :param dim: dimension along which the index tensor is applicable (dim of size bs)
         :return: Unsorted Tensor
         """
         # Sort the sorted idx to get the original positional idx
         _, pos_idx = sorted_idx.sort()
         # Unsort the tensor
-        original = sorted_tensor.index_select(0, pos_idx)
+        original = sorted_tensor.index_select(dim, pos_idx)
         return original
 
     def init_hidden(self, bs):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         if self.rnn_type == 'lstm':
             return (
-                torch.zeros(bs, self.n_layers*self.n_dir, self.hidden_size).to(device),
-                torch.zeros(bs, self.n_layers*self.n_dir, self.hidden_size).to(device)
+                torch.zeros(self.n_layers*self.n_dir, bs, self.hidden_size).to(device),
+                torch.zeros(self.n_layers*self.n_dir, bs, self.hidden_size).to(device)
             )
         else:
-            return torch.zeros(bs, self.n_layers*self.n_dir, self.hidden_size).to(device)
+            return torch.zeros(self.n_layers*self.n_dir, bs, self.hidden_size).to(device)
 
 
 class SentenceEncoder(HREDEncoder):
@@ -249,9 +247,9 @@ class ContextEncoder(HREDEncoder):
         """
         :param x: input sequence of vectors ~(bs, seq, size)
         :param lengths: length of each sequence in x ~(bs)
-        :param h_0: initial hidden state ~(bs, n_dir*n_layers, size)
+        :param h_0: initial hidden state ~(n_dir*n_layers, bs, size)
         :return: out ~(bs, seq, n_dir*size): output features h_t from the last layer, for each t
-                 h ~(bs, n_layers*n_dir, size): hidden state for t = seq_len
+                h    ~(n_layers*n_dir, bs, size): hidden state for t = seq_len
         """
         return super(ContextEncoder, self).forward(x, lengths, h_0)
 
@@ -328,13 +326,13 @@ class HREDDecoder(nn.Module):
     def forward(self, x, h_tm1, context, enc_outs):
         """
         :param x: batch of input tokens - LongTensor ~(bs)
-        :param h_tm1: previous hidden state ~(bs, n_layers, hidden_size)
+        :param h_tm1: previous hidden state ~(n_layers, bs, hidden_size)
         :param context: context vector of all layers at the last time step
-                        ~(bs, n_layers, n_dir*size)
+                        ~(n_layers, bs, n_dir*size)
         :param enc_outs: not used in the classic HRED decoder
 
         :return: out          ~(bs, vocab_size)
-                 h_t          ~(bs, n_layers, hidden_size)
+                 h_t          ~(n_layers, bs, hidden_size)
                  None
         """
         x = self.embedding(x).view(x.size(0), 1, -1)  # ~(bs, seq=1, embedding_size)
@@ -348,18 +346,18 @@ class HREDDecoder(nn.Module):
                 c_tm1 = None
 
         # concatenate the context and project it to hidden_size
-        decoder_hidden = torch.cat((h_tm1, context), 2)       # ~(bs, n_layers, hidden_size + context_size)
-        decoder_hidden = F.tanh(self.pre_concat(decoder_hidden))  # ~(bs, n_layers, hidden_size)
+        decoder_hidden = torch.cat((h_tm1, context), 2)           # ~(n_layers, bs, hidden_size + context_size)
+        decoder_hidden = torch.tanh(self.pre_concat(decoder_hidden))  # ~(n_layers, bs, hidden_size)
 
         # feed in input & new context to RNN
         if self.rnn_type == 'lstm':
             out, h_t = self.rnn(x, (decoder_hidden, c_tm1))
             # out ~(bs, seq=1, hidden_size)
-            # h_t ~(bs, n_layers, hidden_size), ~(bs, n_layers, hidden_size)
+            # h_t ~(n_layers, bs, hidden_size), ~(n_layers, bs, hidden_size)
         else:
             out, h_t = self.rnn(x, decoder_hidden)
             # out ~(bs, seq=1, hidden_size)
-            # h_t ~(bs, n_layers, hidden_size)
+            # h_t ~(n_layers, bs, hidden_size)
 
         out = out.squeeze(1)    # ~(bs, hidden_size)
         out = self.output(out)  # ~(bs, vocab_size)
@@ -371,11 +369,11 @@ class HREDDecoder(nn.Module):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         if self.rnn_type == 'lstm':
             return (
-                torch.zeros(bs, self.n_layers, self.hidden_size).to(device),
-                torch.zeros(bs, self.n_layers, self.hidden_size).to(device)
+                torch.zeros(self.n_layers, bs, self.hidden_size).to(device),
+                torch.zeros(self.n_layers, bs, self.hidden_size).to(device)
             )
         else:
-            return torch.zeros(bs, self.n_layers, self.hidden_size).to(device)
+            return torch.zeros(self.n_layers, bs, self.hidden_size).to(device)
 
 
 class AttentionDecoder(HREDDecoder):
@@ -424,14 +422,14 @@ class AttentionDecoder(HREDDecoder):
     def forward(self, x, h_tm1, context, enc_outs):
         """
         :param x: batch of input tokens - LongTensor ~(bs)
-        :param h_tm1: previous hidden state ~(bs, n_layers, hidden_size)
+        :param h_tm1: previous hidden state ~(n_layers, bs, hidden_size)
         :param context: context vector of all layers at the last time step
-                        ~(bs, n_layers, n_dir*size)
+                        ~(n_layers, bs, n_dir*size)
         :param enc_outs: encoder output vectors of the last layer at each time step
                          ~(bs, enc_seq, n_dir*size)
 
         :return: out          ~(bs, vocab_size)
-                 h_t          ~(bs, n_layers, hidden_size)
+                 h_t          ~(n_layers, bs, hidden_size)
                  attn_weights ~(bs, seq=1, enc_seq)
         """
         x = self.embedding(x).view(x.size(0), 1, -1)  # ~(bs, seq=1, embedding_size)
@@ -448,18 +446,18 @@ class AttentionDecoder(HREDDecoder):
                 c_tm1 = None
 
         # concatenate the context and project it to hidden_size
-        decoder_hidden = torch.cat((h_tm1, context), 2)  # ~(bs, n_layers, hidden_size + context_size)
-        decoder_hidden = F.tanh(self.pre_concat(decoder_hidden))  # ~(bs, n_layers, hidden_size)
+        decoder_hidden = torch.cat((h_tm1, context), 2)           # ~(n_layers, bs, hidden_size + context_size)
+        decoder_hidden = torch.tanh(self.pre_concat(decoder_hidden))  # ~(n_layers, bs, hidden_size)
 
         # feed in input & new context to RNN
         if self.rnn_type == 'lstm':
             tmp_out, h_t = self.rnn(x, (decoder_hidden, c_tm1))
             # out ~(bs, seq=1, hidden_size)
-            # h_t ~(bs, n_layers, hidden_size),  ~(bs, n_layers, hidden_size)
+            # h_t ~(n_layers, bs, hidden_size),  ~(n_layers, bs, hidden_size)
         else:
             tmp_out, h_t = self.rnn(x, decoder_hidden)
             # out ~(bs, seq=1, hidden_size)
-            # h_t ~(bs, n_layers, hidden_size)
+            # h_t ~(n_layers, bs, hidden_size)
 
         ####
         # Compute attention weights
@@ -474,7 +472,7 @@ class AttentionDecoder(HREDDecoder):
         # get new outputs after concatenating weighted context
         tmp_out = tmp_out.squeeze(1)                  # ~(bs, hidden_size)
         tmp_out = torch.cat((w_context, tmp_out), 1)  # ~(bs, enc_size + hidden_size)
-        out = F.tanh((self.post_concat(tmp_out)))     # ~(bs, hidden_size)
+        out = torch.tanh((self.post_concat(tmp_out)))     # ~(bs, hidden_size)
 
         # get probability distribution over vocab size
         out = self.output(out)  # ~(bs, vocab_size)

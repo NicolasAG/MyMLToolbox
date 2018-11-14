@@ -378,7 +378,7 @@ def set_gradient(model, value):
         p.requires_grad = value
 
 
-def separate_list(array, separator):
+def split_list(array, separator):
     """
     Split an array of idx around a separator of any length
     :param array: list of idx [0,a,b,c,1, ..., 0,a,b,c,1]
@@ -399,3 +399,85 @@ def separate_list(array, separator):
             i += 1
     results.append(a)
     return results
+
+
+def _sequence_mask(seq_lengths, max_len):
+    """
+    Build a mask for a batch of sequences of various lengths
+    --> used in masked_cross_entropy() below
+    :param seq_lengths: length of each sequence ~(bs)
+    :param max_len: maximum length of a sequence in the batch
+    :return: mask ~(bs, max_len)
+    """
+    assert seq_lengths.max().item() == max_len
+    bs = seq_lengths.size(0)
+
+    seq_range = torch.arange(0, max_len).long()  # [0,1,2,3,...,max_len-1]
+    seq_range_expand = seq_range.unsqueeze(0).expand(bs, max_len)
+    '''
+    seq_range_expand = [
+        [0, 1, 2, 3, ..., max_len-1],
+        [0, 1, 2, 3, ..., max_len-1],
+        [0, 1, 2, 3, ..., max_len-1],
+        [0, 1, 2, 3, ..., max_len-1],
+        ...
+    ]
+    ~(bs, max_len)
+    '''
+
+    seq_lengths_expand = (
+        seq_lengths.unsqueeze(1).expand_as(seq_range_expand)
+    )
+    '''
+    seq_lengths_expand = [
+        [length_1, length_1, ..., length_1],
+        [length_2, length_2, ..., length_2],
+        [length_3, length_3, ..., length_3],
+        [length_4, length_4, ..., length_4],
+        ...
+    ]
+    # ~(bs, max_len)
+    '''
+
+    # move to GPU if available
+    if seq_lengths_expand.is_cuda:
+        seq_range_expand = seq_range_expand.cuda()
+
+    return seq_range_expand < seq_lengths_expand
+
+
+def masked_cross_entropy(logits, target, lengths):
+    """
+    Compute the negative log softmax of a batch of sequences.
+    The loss is defined as the negative log-likelihood
+    --> used in hred language modelling
+    :param logits: FloatTensor containing unormalized probabilities for each class
+                   ~(bs, max_len, num_classes)
+    :param target: LongTensor containing the index of the true class for each step
+                   ~(bs, max_len)
+    :param lengths: LongTensor containing the length of each data in a batch
+                    ~(bs)
+
+    :return loss: an average loss value masked by the length.
+    """
+    bs, max_len, num_classes = logits.size()
+
+    # grab the log softmax proba of each class
+    logits_flat = logits.view(-1, num_classes)          # ~(bs*max_len, num_classes)
+    log_probs_flat = F.log_softmax(logits_flat, dim=1)  # ~(bs*max_len, num_classes)
+
+    # grab the negative log likelihood (-log proba) of the true tokens
+    target_flat = target.view(-1, 1)         # ~(bs*max_len, 1)
+    losses_flat = - torch.gather(
+        log_probs_flat, dim=1, index=target_flat
+    )                                        # ~(bs*max_len, 1)
+
+    # mask out loss of the padded parts of the sequence
+    losses = losses_flat.view(bs, max_len)   # ~(bs, max_len)
+    mask = _sequence_mask(lengths, max_len)  # ~(bs, max_len)
+    losses *= mask.float()
+
+    # compute the average loss
+    loss = losses.sum() / lengths.float().sum()
+    return loss
+
