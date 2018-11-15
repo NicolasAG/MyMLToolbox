@@ -280,8 +280,9 @@ def process_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
 def main():
     # Hyper-parameters...
     batch_size = 8
-    max_epoch = 10
+    max_epoch = 100
     log_interval = 1  # lo stats every k batch
+    show_attention = -1  # don't show attention weights
 
     ##########################################################################
     # Load dataset
@@ -363,12 +364,19 @@ def main():
     # Training code
     ##########################################################################
     print("\nStart training...")
+    print("-" * 100)
 
-    best_val_loss = float('inf')
+    best_valid_loss = float('inf')
     best_epoch = 0
+    patience = 5
 
     for epoch in range(1, max_epoch+1):
         epoch_start_time = time.time()
+
+        # initialize batches
+        train_batches = minibatch_generator(
+            bs=batch_size, src=train_src, tgt=train_tgt, corpus=corpus, shuffle=True
+        )
 
         # Turn on training mode which enables dropout
         sentence_encoder.train()
@@ -379,36 +387,80 @@ def main():
         set_gradient(context_encoder, True)
         set_gradient(decoder, True)
 
-        # initialize batches
-        train_batches = minibatch_generator(
-            bs=batch_size, src=train_src, tgt=train_tgt, corpus=corpus, shuffle=True
-        )
-        test_batches = minibatch_generator(
-            bs=batch_size, src=test_src, tgt=test_tgt, corpus=corpus, shuffle=False
-        )
-
-        total_loss = 0.0
+        train_loss = 0.0
+        iters = 0.0
         start_time = time.time()
 
         for n_batch, batch in enumerate(train_batches):
             loss, predictions, attentions = process_one_batch(
                 sentence_encoder, context_encoder, decoder, batch, corpus, optimizer
             )
-            total_loss += loss
+            train_loss += loss
+            iters += 1
 
             if n_batch % log_interval == 0:
-                current_loss = total_loss / log_interval
+                current_loss = train_loss / iters
                 elapsed = time.time() - start_time
-                print("| epoch %3d | %3d/%3d batches | ms/batch %6f | loss %6f | ppl %6f" % (
-                    epoch, n_batch, num_train_batches, elapsed*1000/log_interval, current_loss, np.exp(current_loss)
+                print("| epoch %3d | %3d/%3d batches | ms/batch %4f | train loss %6f | train ppl %6f" % (
+                    epoch, n_batch+1, num_train_batches, elapsed*1000 / log_interval,
+                    current_loss, np.exp(current_loss)
                 ))
-                total_loss = 0
                 start_time = time.time()
-        print("-"*80)
 
-        # TODO: continue from here: https://github.com/placaille/nmt-comp550/blob/master/src/main.py#L257
-        # valid_loss, _ = evaluate()
+        train_loss = train_loss / iters
 
+        # initialize batches
+        test_batches = minibatch_generator(
+            bs=batch_size, src=test_src, tgt=test_tgt, corpus=corpus, shuffle=False
+        )
+
+        # Turn on evaluation mode which disables dropout
+        sentence_encoder.eval()
+        context_encoder.eval()
+        decoder.eval()
+
+        set_gradient(sentence_encoder, False)
+        set_gradient(context_encoder, False)
+        set_gradient(decoder, False)
+
+        valid_loss = 0.0
+        iters = 0.0
+
+        for n_batch, batch in enumerate(test_batches):
+            loss, predictions, attentions = process_one_batch(
+                sentence_encoder, context_encoder, decoder, batch, corpus
+            )
+            valid_loss += loss
+            iters += 1
+
+            if show_attention > 0 and n_batch % show_attention == 0:
+                # TODO: implement this
+                # https://github.com/placaille/nmt-comp550/blob/master/src/utils.py#L359-L366
+                pass
+
+        valid_loss /= iters
+        scheduler.step(valid_loss)
+
+        print("| end of epoch %3d | elapsed %4f s | train loss %6f | train ppl %6f | valid loss %6f | valid ppl %6f" % (
+            epoch, time.time() - epoch_start_time, train_loss, np.exp(train_loss), valid_loss, np.exp(valid_loss)
+        ))
+
+        # Save the model if the validation loss improved
+        if valid_loss < best_valid_loss:
+            best_epoch = epoch
+            best_valid_loss = valid_loss
+            patience = 5  # reset patience
+            print("| Improved valid loss :D | patience reset to %2d | Saving model parameters..." % patience)
+            torch.save(sentence_encoder.state_dict(), "hred_sent_enc.pt")
+            torch.save(context_encoder.state_dict(), "hred_cont_enc.pt")
+            torch.save(decoder.state_dict(), "hred_decoder.pt")
+        else:
+            patience -= 1
+            print("| Didn't improve valid loss :( | patience %2d" % patience)
+
+        print("-" * 100)
+        if patience <= 0:
+            break
 
 if __name__ == '__main__':
     # Hyper-parameters...
