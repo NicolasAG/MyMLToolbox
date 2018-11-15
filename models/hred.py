@@ -470,15 +470,15 @@ class AttentionDecoder(HREDDecoder):
         w_context = w_context.sum(dim=1)                      # ~(bs, enc_size)
 
         # get new outputs after concatenating weighted context
-        tmp_out = tmp_out.squeeze(1)                  # ~(bs, hidden_size)
-        tmp_out = torch.cat((w_context, tmp_out), 1)  # ~(bs, enc_size + hidden_size)
-        out = torch.tanh((self.post_concat(tmp_out)))     # ~(bs, hidden_size)
+        tmp_out = tmp_out.squeeze(1)                   # ~(bs, hidden_size)
+        tmp_out = torch.cat((w_context, tmp_out), 1)   # ~(bs, enc_size + hidden_size)
+        out = torch.tanh((self.post_concat(tmp_out)))  # ~(bs, hidden_size)
 
         # get probability distribution over vocab size
         out = self.output(out)  # ~(bs, vocab_size)
         out /= self.alpha  # divide by Boltzmann Temperature term before applying softmax
 
-        return out, h_t, att_weights
+        return out, h_t, attn_weights
 
 
 default_params = {
@@ -500,7 +500,7 @@ default_params = {
     'dec_hidden_size': 300,
     'dec_n_layers': 1,
     'dec_dropout': 0.1,
-    'dec_attn_mode': None,
+    'dec_attn_mode': 'general',  # None, 'general', 'dot', or 'concat'
     'dec_alpha': 1.0
 }
 
@@ -518,18 +518,6 @@ def build_model(vocab_size, args=None):
             cont_enc_input_size = default_params['sent_enc_hidden_size'] * 2
         else:
             cont_enc_input_size = default_params['sent_enc_hidden_size']
-
-    # Get decoder context size
-    if args:
-        if args.cont_enc_bidirectional:
-            dec_context_size = args.cont_enc_hidden_size * 2
-        else:
-            dec_context_size = args.cont_enc_hidden_size
-    else:
-        if default_params['cont_enc_bidirectional']:
-            dec_context_size = default_params['cont_enc_hidden_size'] * 2
-        else:
-            dec_context_size = default_params['cont_enc_hidden_size']
 
     sent_encoder = SentenceEncoder(
         rnn_type=args.sent_enc_rnn_type if args else default_params['sent_enc_rnn_type'],
@@ -549,20 +537,60 @@ def build_model(vocab_size, args=None):
         dropout=args.cont_enc_dropout if args else default_params['cont_enc_dropout'],
         bidirectional=args.cont_enc_bidirectional if args else default_params['cont_enc_bidirectional']
     )
-
+    ###
     # Check if using attention
+    ###
     if args:
-        if args.dec_attn_mode is not None:
-            use_attention = True
-        else:
-            use_attention = False
+        attention = args.dec_attn_mode
     else:
-        if default_params['dec_attn_mode'] is not None:
-            use_attention = True
+        attention = default_params['dec_attn_mode']
+    ###
+    # Get decoder context size
+    ###
+    if args:
+        if args.cont_enc_bidirectional:
+            dec_context_size = args.cont_enc_hidden_size * 2
         else:
-            use_attention = False
-
+            dec_context_size = args.cont_enc_hidden_size
+    else:
+        if default_params['cont_enc_bidirectional']:
+            dec_context_size = default_params['cont_enc_hidden_size'] * 2
+        else:
+            dec_context_size = default_params['cont_enc_hidden_size']
+    ###
+    # check hidden sizes for dot product attention
+    ###
+    if attention.strip().lower() == 'dot':
+        # hidden size of context encoder & decoder must be the same
+        if args:
+            if dec_context_size != args.dec_hidden_size:
+            # NOTE: dec_context_size is the same as cont_enc_hidden_size but adapted for bidirectional possibility
+                print(
+                    "WARNING: when using dot product attention, "
+                    "the hidden size of the decoder (%d) must be the same as "
+                    "the hidden size of the context encoder (%d). Setting it to %d" % (
+                    args.dec_hidden_size, dec_context_size, dec_context_size
+                ))
+                dec_hidden_size = dec_context_size
+            else:
+                dec_hidden_size = args.dec_hidden_size
+        else:
+            if dec_context_size != default_params['dec_hidden_size']:
+            # NOTE: dec_context_size is the same as cont_enc_hidden_size but adapted for bidirectional possibility
+                print(
+                    "WARNING: when using dot product attention, "
+                    "the hidden size of the decoder (%d) must be the same as "
+                    "the hidden size of the context encoder (%d). Setting it to %d" % (
+                    default_params['dec_hidden_size'], dec_context_size, dec_context_size
+                ))
+                dec_hidden_size = dec_context_size
+            else:
+                dec_hidden_size = default_params['dec_hidden_size']
+    else:
+        dec_hidden_size = args.dec_hidden_size if args else default_params['dec_hidden_size']
+    ###
     # Check that context n_layers and decoder n_layers are the same
+    ###
     if args:
         if args.cont_enc_n_layers != args.dec_n_layers:
             print(
@@ -584,8 +612,9 @@ def build_model(vocab_size, args=None):
             dec_n_layers = default_params['cont_enc_n_layers']
         else:
             dec_n_layers = default_params['dec_n_layers']
-
+    ###
     # Check that context rnn_type and decoder rnn_type are the same
+    ###
     if args:
         if args.cont_enc_rnn_type != args.dec_rnn_type:
             print(
@@ -608,16 +637,16 @@ def build_model(vocab_size, args=None):
         else:
             dec_rnn_type = default_params['dec_rnn_type']
 
-    if use_attention:
+    if attention is not None:
         decoder = AttentionDecoder(
             rnn_type=dec_rnn_type,
             vocab_size=vocab_size,
             embedding_size=args.embedding_size if args else default_params['embedding_size'],
-            hidden_size=args.dec_hidden_size if args else default_params['dec_hidden_size'],
+            hidden_size=dec_hidden_size,
             context_size=dec_context_size,
             n_layers=dec_n_layers,
             dropout=args.dec_dropout if args else default_params['dec_dropout'],
-            attn_mode=args.dec_attn_mode if args else default_params['dec_attn_mode'],
+            attn_mode=attention,
             alpha=args.dec_alpha if args else default_params['dec_alpha']
         )
     else:
@@ -625,7 +654,7 @@ def build_model(vocab_size, args=None):
             rnn_type=dec_rnn_type,
             vocab_size=vocab_size,
             embedding_size=args.embedding_size if args else default_params['embedding_size'],
-            hidden_size=args.dec_hidden_size if args else default_params['dec_hidden_size'],
+            hidden_size=dec_hidden_size,
             context_size=dec_context_size,
             n_layers=dec_n_layers,
             dropout=args.dec_dropout if args else default_params['dec_dropout'],

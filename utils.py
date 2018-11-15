@@ -322,7 +322,8 @@ class AttentionModule(nn.Module):
 
         if self.method == 'dot':
             # make sure inputs have the same hidden size
-            assert h_t.size(2) == outs.size(2)
+            assert h_t.size(2) == outs.size(2), "encoder " \
+                "hidden size: %d != decoder hidden size: %d" % (outs.size(2), h_t.size(2))
             # swap (transpose) dimension 1 & 2 of outs
             tmp_outs = outs.permute(0, 2, 1)  # ~(bs, hid_size, enc_seq)
 
@@ -349,7 +350,7 @@ class AttentionModule(nn.Module):
             tmp_h_t = h_t.expand((h_t.size(0), outs.size(1), h_t.size(2)))
 
             # concatenate tmp_h_t and outs along the hidden_size dim
-            concat = torch.cat((tmp_h_t, encoder_outputs), 2)  # ~(bs, enc_seq, dec_size + enc_size)
+            concat = torch.cat((tmp_h_t, outs), 2)  # ~(bs, enc_seq, dec_size + enc_size)
 
             concat = self.attn(concat)    # ~(bs, enc_seq, dec_size)
             grid = self.v(concat)         # ~(bs, enc_seq, 1)
@@ -363,7 +364,10 @@ class AttentionModule(nn.Module):
 
         # make sure to compute softmax over valid tokens only
         mask = (grid != 0).float()                          # ~(bs, dec_seq=1, enc_seq)
-        attn_weights *= mask                                # ~(bs, dec_seq=1, enc_seq)
+        attn_weights = attn_weights * mask                  # ~(bs, dec_seq=1, enc_seq)
+        # ^ WARNING: the above line cannot use *= because Pytorch will give this error:
+        # RuntimeError: one of the variables needed for gradient computation has been modified by an inplace operation
+        # Thanks to: https://discuss.pytorch.org/t/encounter-the-runtimeerror-one-of-the-variables-needed-for-gradient-computation-has-been-modified-by-an-inplace-operation/836/5
         normalizer = attn_weights.sum(dim=2, keepdim=True)  # ~(bs, dec_seq=1, 1)
         attn_weights /= normalizer                          # ~(bs, dec_seq=1, enc_seq)
 
