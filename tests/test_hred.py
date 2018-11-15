@@ -23,8 +23,9 @@ import time
 import sys
 sys.path.append('..')
 
-from utils import Dictionary, Corpus, set_gradient, split_list, masked_cross_entropy
-from models.hred import build_model
+from utils import Dictionary, Corpus, set_gradient, split_list, masked_cross_entropy, show_attention
+from beam_wrapper import BSWrapper
+from models.hred import build_hred
 
 
 def minibatch_generator(bs, src, tgt, corpus, shuffle=True):
@@ -204,13 +205,15 @@ def process_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
     # BEAM SEARCH #
     ###############
     if beam_size > 0:
-        # TODO: https://github.com/placaille/nmt-comp550/blob/master/src/utils.py#L197
-        '''
+
         beam_searcher = BSWrapper(
-            decoder, dec_hid, bs, args.max_length if args else max_length, beam_size, cont_enc_out
+            decoder, dec_hid, cont_enc_ht, bs,
+            args.max_length if args else max_length,
+            beam_size, corpus,
+            cont_enc_out if isinstance(decoder, models.hred.AttentionDecoder) else None
         )
-        preds = torch.LongTensor(beam_searcher.decode())
-        '''
+        predictions = torch.LongTensor(beam_searcher.decode())  # ~(bs, max_len)
+
         return None, predictions, None
 
     ##########
@@ -282,7 +285,7 @@ def main():
     batch_size = 8
     max_epoch = 100
     log_interval = 1  # lo stats every k batch
-    show_attention = -1  # don't show attention weights
+    show_attention_interval = -1  # don't show attention weights
 
     ##########################################################################
     # Load dataset
@@ -337,7 +340,7 @@ def main():
     ##########################################################################
     print("\nBuilding model...")
 
-    sentence_encoder, context_encoder, decoder = build_model(len(corpus.dictionary))
+    sentence_encoder, context_encoder, decoder = build_hred(len(corpus.dictionary))
 
     sentence_encoder.to(device)
     context_encoder.to(device)
@@ -433,15 +436,38 @@ def main():
             valid_loss += loss
             iters += 1
 
-            if show_attention > 0 and n_batch % show_attention == 0:
-                # TODO: implement this
-                # https://github.com/placaille/nmt-comp550/blob/master/src/utils.py#L359-L366
-                pass
+            if show_attention_interval > 0 and n_batch % show_attention_interval == 0:
+                b_src_pp, b_tgt, len_src_pp, len_src, len_tgt = batch
+
+                bs = b_tgt.size(0)  # actual batch size of contexts
+                assert bs == len(len_src)
+
+                # convert tensors to numpy array
+                b_src_pp = b_src_pp.numpy()
+                b_tgt = b_tgt.numpy()
+
+                # Put back together the sentences belonging to the same context
+                b_src = []  # ~(bs, max_len)
+                b_pp_index = 0  # keep track of where we are in the batch++ of individual sentences
+                for batch_index, length in enumerate(len_src):
+                    sentences = []  # list of strings
+                    for s in b_src_pp[b_pp_index: b_pp_index + length]:
+                        sentences.append(' '.join([corpus.dictionary.idx2word[x] for x in s]))
+                    b_src.append(sentences)
+                    b_pp_index += length
+
+                for i in range(2):
+                    src_sequence = b_src[i]
+                    # b_tgt ~(bs, max_tgt_len)
+                    tgt_sequence = [corpus.dictionary.idx2word[x] for x in b_tgt[i, :]]
+                    # attentions ~(bs, max_src, max_tgt)
+                    att_sequence = attentions[i].transpose(1, 0)  # ~(max_tgt_len, max_src_len)
+                    show_attention(src_sequence, tgt_sequence, att_sequence, name=None)
 
         valid_loss /= iters
         scheduler.step(valid_loss)
 
-        print("| end of epoch %3d | elapsed %4f s | train loss %6f | train ppl %6f | valid loss %6f | valid ppl %6f" % (
+        print("|-epoch %3d-| took %4f s | train loss %6f | train ppl %6f | valid loss %6f | valid ppl %6f" % (
             epoch, time.time() - epoch_start_time, train_loss, np.exp(train_loss), valid_loss, np.exp(valid_loss)
         ))
 
@@ -450,17 +476,18 @@ def main():
             best_epoch = epoch
             best_valid_loss = valid_loss
             patience = 5  # reset patience
-            print("| Improved valid loss :D | patience reset to %2d | Saving model parameters..." % patience)
+            print("| Improved! | patience is %3d | Saving model parameters..." % patience)
             torch.save(sentence_encoder.state_dict(), "hred_sent_enc.pt")
             torch.save(context_encoder.state_dict(), "hred_cont_enc.pt")
             torch.save(decoder.state_dict(), "hred_decoder.pt")
         else:
             patience -= 1
-            print("| Didn't improve valid loss :( | patience %2d" % patience)
+            print("| Worsened! | patience is %3d" % patience)
 
         print("-" * 100)
         if patience <= 0:
             break
+
 
 if __name__ == '__main__':
     # Hyper-parameters...

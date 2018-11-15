@@ -505,7 +505,7 @@ default_params = {
 }
 
 
-def build_model(vocab_size, args=None):
+def build_hred(vocab_size, args=None):
 
     # Get context RNN input size
     if args:
@@ -662,3 +662,145 @@ def build_model(vocab_size, args=None):
         )
 
     return sent_encoder, context_encoder, decoder
+
+
+def build_seq2seq(vocab_size, args=None):
+    """
+    No context encoder
+    """
+
+    encoder = SentenceEncoder(
+        rnn_type=args.sent_enc_rnn_type if args else default_params['sent_enc_rnn_type'],
+        vocab_size=vocab_size,
+        embedding_size=args.embedding_size if args else default_params['embedding_size'],
+        hidden_size=args.sent_enc_hidden_size if args else default_params['sent_enc_hidden_size'],
+        n_layers=args.sent_enc_n_layers if args else default_params['sent_enc_n_layers'],
+        dropout=args.sent_enc_dropout if args else default_params['sent_enc_dropout'],
+        bidirectional=args.sent_enc_bidirectional if args else default_params['sent_enc_bidirectional']
+    )
+
+    ###
+    # Check if using attention
+    ###
+    if args:
+        attention = args.dec_attn_mode
+    else:
+        attention = default_params['dec_attn_mode']
+    ###
+    # Get decoder context size
+    ###
+    if args:
+        if args.sent_enc_bidirectional:
+            dec_context_size = args.sent_enc_hidden_size * 2
+        else:
+            dec_context_size = args.sent_enc_hidden_size
+    else:
+        if default_params['sent_enc_bidirectional']:
+            dec_context_size = default_params['sent_enc_hidden_size'] * 2
+        else:
+            dec_context_size = default_params['sent_enc_hidden_size']
+    ###
+    # check hidden sizes for dot product attention
+    ###
+    if attention.strip().lower() == 'dot':
+        # hidden size of encoder & decoder must be the same
+        if args:
+            if dec_context_size != args.dec_hidden_size:
+            # NOTE: dec_context_size is the same as sent_enc_hidden_size but adapted for bidirectional possibility
+                print(
+                    "WARNING: when using dot product attention, "
+                    "the hidden size of the decoder (%d) must be the same as "
+                    "the hidden size of the encoder (%d). Setting it to %d" % (
+                    args.dec_hidden_size, dec_context_size, dec_context_size
+                ))
+                dec_hidden_size = dec_context_size
+            else:
+                dec_hidden_size = args.dec_hidden_size
+        else:
+            if dec_context_size != default_params['dec_hidden_size']:
+            # NOTE: dec_context_size is the same as sent_enc_hidden_size but adapted for bidirectional possibility
+                print(
+                    "WARNING: when using dot product attention, "
+                    "the hidden size of the decoder (%d) must be the same as "
+                    "the hidden size of the encoder (%d). Setting it to %d" % (
+                    default_params['dec_hidden_size'], dec_context_size, dec_context_size
+                ))
+                dec_hidden_size = dec_context_size
+            else:
+                dec_hidden_size = default_params['dec_hidden_size']
+    else:
+        dec_hidden_size = args.dec_hidden_size if args else default_params['dec_hidden_size']
+    ###
+    # Check that sentence n_layers and decoder n_layers are the same
+    ###
+    if args:
+        if args.sent_enc_n_layers != args.dec_n_layers:
+            print(
+                "WARNING: the number of layers in the decoder (%d) must be the same as "
+                "the number of layers in the encoder (%d). Setting it to %d" % (
+                args.dec_n_layers, args.sent_enc_n_layers, args.sent_enc_n_layers)
+            )
+            dec_n_layers = args.sent_enc_n_layers
+        else:
+            dec_n_layers = args.dec_n_layers
+    else:
+        if default_params['sent_enc_n_layers'] != default_params['dec_n_layers']:
+            print(
+                "WARNING: the number of layers in the decoder (%d) must be the same as "
+                "the number of layers in the encoder (%d). Setting it to %d" % (
+                    default_params['dec_n_layers'], default_params['sent_enc_n_layers'],
+                    default_params['sent_enc_n_layers'])
+            )
+            dec_n_layers = default_params['sent_enc_n_layers']
+        else:
+            dec_n_layers = default_params['dec_n_layers']
+    ###
+    # Check that encoder rnn_type and decoder rnn_type are the same
+    ###
+    if args:
+        if args.sent_enc_rnn_type != args.dec_rnn_type:
+            print(
+                "WARNING: the rnn_type of the decoder (%s) must be the same as "
+                "the rnn_type of the encoder (%s). Setting it to %s" % (
+                    args.dec_rnn_type, args.sent_enc_rnn_type, args.sent_enc_rnn_type)
+            )
+            dec_rnn_type = args.sent_enc_rnn_type
+        else:
+            dec_rnn_type = args.dec_rnn_type
+    else:
+        if default_params['sent_enc_rnn_type'] != default_params['dec_rnn_type']:
+            print(
+                "WARNING: the rnn_type of the decoder (%s) must be the same as "
+                "the rnn_type of the encoder (%s). Setting it to %s" % (
+                    default_params['dec_rnn_type'], default_params['sent_enc_rnn_type'],
+                    default_params['sent_enc_rnn_type'])
+            )
+            dec_rnn_type = default_params['sent_enc_rnn_type']
+        else:
+            dec_rnn_type = default_params['dec_rnn_type']
+
+    if attention is not None:
+        decoder = AttentionDecoder(
+            rnn_type=dec_rnn_type,
+            vocab_size=vocab_size,
+            embedding_size=args.embedding_size if args else default_params['embedding_size'],
+            hidden_size=dec_hidden_size,
+            context_size=dec_context_size,
+            n_layers=dec_n_layers,
+            dropout=args.dec_dropout if args else default_params['dec_dropout'],
+            attn_mode=attention,
+            alpha=args.dec_alpha if args else default_params['dec_alpha']
+        )
+    else:
+        decoder = HREDDecoder(
+            rnn_type=dec_rnn_type,
+            vocab_size=vocab_size,
+            embedding_size=args.embedding_size if args else default_params['embedding_size'],
+            hidden_size=dec_hidden_size,
+            context_size=dec_context_size,
+            n_layers=dec_n_layers,
+            dropout=args.dec_dropout if args else default_params['dec_dropout'],
+            alpha=args.dec_alpha if args else default_params['dec_alpha']
+        )
+
+    return encoder, decoder

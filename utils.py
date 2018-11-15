@@ -1,9 +1,14 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+import os
 import copy
 import math
 import unicodedata
+
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
 from nltk import sent_tokenize, word_tokenize
 
@@ -485,3 +490,31 @@ def masked_cross_entropy(logits, target, lengths):
     loss = losses.sum() / lengths.float().sum()
     return loss
 
+
+def show_attention(input_sequence, output_words, attentions, name=None):
+    """
+    :param input_sequence: list of input strings
+    :param output_words: list of output words
+    :param attentions: ~(max_tgt_len, max_src_len)
+    """
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    cax = ax.matshow(attentions.numpy(), cmap='bone')
+
+    if type(input_sequence) == type(''):
+        input_sequence = input_sequence.split()
+
+    # set up axes
+    ax.set_xticklabels([''] + input_sequence + ['<EOC>'], rotation=90)
+    ax.set_yticklabels([''] + output_words)
+
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+
+    if name is not None:
+        if not os.path.exists('images'):
+            os.makedirs('images')
+        plt.savefig('images/' + str(name) + '.png')
+    else:
+        plt.show()
+    plt.close()
