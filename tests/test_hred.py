@@ -25,7 +25,7 @@ sys.path.append('..')
 
 from utils import Dictionary, Corpus, set_gradient, split_list, masked_cross_entropy, show_attention
 from beam_wrapper import BSWrapper
-from models.hred import build_hred
+from models.hred import build_hred, AttentionDecoder
 
 
 def minibatch_generator(bs, src, tgt, corpus, shuffle=True):
@@ -86,20 +86,7 @@ def minibatch_generator(bs, src, tgt, corpus, shuffle=True):
         b_src_pp = [corpus.fill_seq(seq, max_src_pp) for seq in b_src_pp]
         b_tgt = [corpus.fill_seq(seq, max_tgt) for seq in b_tgt]
 
-        # Sort the lists by len_src for pack_padded_sentence later
-        '''
-        b_sorted = [
-            (bs, bt, ls, lt) for (bs, bt, ls, lt) in sorted(
-                zip(b_src, b_tgt, len_src, len_tgt),
-                key=lambda v: v[2],  # using len_src
-                reverse=True         # descending order
-            )
-        ]
-        # unzip to individual listss
-        b_src, b_tgt, len_src, len_tgt = zip(*b_sorted)
-        '''
-
-        b_src_pp = torch.LongTensor(b_src_pp)  # ~(bs, seq_len)
+        b_src_pp = torch.LongTensor(b_src_pp)  # ~(bs++, seq_len)
         b_tgt = torch.LongTensor(b_tgt)        # ~(bs, seq_len)
         yield b_src_pp, b_tgt, len_src_pp, len_src, len_tgt
 
@@ -205,12 +192,13 @@ def process_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
     # BEAM SEARCH #
     ###############
     if beam_size > 0:
-
+        try:
+            maxl = args.max_length
+        except NameError:
+            maxl = max_length
         beam_searcher = BSWrapper(
-            decoder, dec_hid, cont_enc_ht, bs,
-            args.max_length if args else max_length,
-            beam_size, corpus,
-            cont_enc_out if isinstance(decoder, models.hred.AttentionDecoder) else None
+            decoder, dec_hid, cont_enc_ht, bs, maxl, beam_size, corpus,
+            cont_enc_out if isinstance(decoder, AttentionDecoder) else None
         )
         predictions = torch.LongTensor(beam_searcher.decode())  # ~(bs, max_len)
 
@@ -487,6 +475,68 @@ def main():
         print("-" * 100)
         if patience <= 0:
             break
+
+    ##########################################################################
+    # Testing code
+    ##########################################################################
+    print("Testing begins...")
+
+    with open("hred_sent_enc.pt", "rb") as f:
+        sentence_encoder.load_state_dict(torch.load(f))
+    with open("hred_cont_enc.pt", "rb") as f:
+        context_encoder.load_state_dict(torch.load(f))
+    with open("hred_decoder.pt", "rb") as f:
+        decoder.load_state_dict(torch.load(f))
+
+    # initialize batches
+    test_batches = minibatch_generator(
+        bs=batch_size, src=test_src, tgt=test_tgt, corpus=corpus, shuffle=False
+    )
+
+    # Turn on evaluation mode which disables dropout
+    sentence_encoder.eval()
+    context_encoder.eval()
+    decoder.eval()
+
+    set_gradient(sentence_encoder, False)
+    set_gradient(context_encoder, False)
+    set_gradient(decoder, False)
+
+    pred_sentences = []
+    gold_sentences = []
+
+    for n_batch, batch in enumerate(test_batches):
+        _, predictions, _ = process_one_batch(
+            sentence_encoder, context_encoder, decoder, batch,
+            corpus, optimizer=None, beam_size=3
+        )
+        # predictions ~(bs, max_len)
+
+        # true target
+        gold = batch[1]  # ~(bs, max_tgt_len)
+
+        # convert back to numpy
+        predictions = predictions.numpy()
+        gold = gold.numpy()
+
+        for i in range(predictions.shape[0]):
+            # get tokens from the predicted indices
+            pred_tokens = [corpus.dictionary.idx2word[x] for x in predictions[i]]
+            gold_tokens = [corpus.dictionary.idx2word[x] for x in gold[i]]
+
+            # filter out '<pad>'
+            pred_tokens = filter(lambda x: x != corpus.pad_tag, pred_tokens)
+            gold_tokens = filter(lambda x: x != corpus.pad_tag, gold_tokens)
+
+            pred_sentences.append(pred_tokens)
+            gold_sentences.append(gold_tokens)
+
+    with open("test_hred_test_predictions.txt", "w") as f:
+        for p_sent, g_sent in zip(pred_sentences, gold_sentences):
+            f.write('gold: ' + ' '.join(g_sent) + '\n')
+            f.write('pred: ' + ' '.join(p_sent) + '\n\n')
+
+    print("test_hred_test_predictions.txt is saved.")
 
 
 if __name__ == '__main__':

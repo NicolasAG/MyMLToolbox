@@ -116,10 +116,7 @@ class BSWrapper(object):
 
     def eval_one_beam(self, initial_beam, keep_trajectories=False):
         """
-
-        :param initial_beam:
-        :param keep_trajectories:
-        :return:
+        Perform beam search
         """
         to_evaluate = [initial_beam]
         memory = []
@@ -180,6 +177,6 @@ class BSWrapper(object):
 
         # eventually, pick the best one
         final_scores = [beam.score / len(beam.path[0]) for beam in to_evaluate]
-        best_beam_idx = np.argmax(final_scores)[0]
+        best_beam_idx = np.argmax(final_scores)
         best_beam = to_evaluate[best_beam_idx]
         return best_beam

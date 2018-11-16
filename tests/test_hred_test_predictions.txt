@@ -1,0 +1,21 @@
+gold: <sos> avenged sevenfold . <eos>
+pred: <sos> avenged sevenfold . <eos>
+
+gold: <sos> which one ? <eos>
+pred: <sos> which one ? <eos>
+
+gold: <sos> i 'm listening to music . <eos>
+pred: <sos> i 'm listening to music . <eos>
+
+gold: <sos> are you serious ? <eos>
+pred: <sos> are you serious ? <eos>
+
+gold: <sos> nothing much . <eos>
+pred: <sos> i 'm listening to music . <eos>
+
+gold: <sos> good thank you . <eos>
+pred: <sos> good thank you . <eos>
+
+gold: <sos> fine thanks , and you ? <eos>
+pred: <sos> fine thanks , and you ? <eos>
+
