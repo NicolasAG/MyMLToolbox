@@ -21,7 +21,7 @@ import os
 import time
 
 import sys
-sys.path.append('..')
+sys.path.append('../..')
 
 from utils import Dictionary, Corpus, set_gradient, split_list, masked_cross_entropy, show_attention
 from beam_wrapper import BSWrapper
@@ -51,7 +51,7 @@ def minibatch_generator(bs, src, tgt, corpus, shuffle=True):
     if shuffle:
         random.shuffle(indices)
 
-    while nb_elem > 0:  # while number there are still some items left
+    while nb_elem > 0:  # while there are still some items left
         b_src_pp = []    # batch of individual sentences
         len_src_pp = []  # number of tokens in each sentence
         len_src = []     # number of sentences for each context
@@ -95,7 +95,7 @@ def process_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
     """
     Perform a training or validation step over 1 batch
     :param sent_enc: sentence encoder (see hred.SentenceEncoder)
-    :param cont_enc: context encoder (see hred.ContextEncoder
+    :param cont_enc: context encoder (see hred.ContextEncoder)
     :param decoder: decoder (see hred.HREDDecoder or hred.AttentionDecoder)
     :param batch: batch of (src, tgt) pairs
     :param corpus: utils.Corpus object that hold vocab
@@ -114,7 +114,7 @@ def process_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
     assert bs == len(len_src)
     max_src = max(len_src)         # max number of sentences in one context
 
-    # Reset gradients & use teacher forcing (in training mode)
+    # Reset gradients
     if optimizer:
         optimizer.zero_grad()
 
@@ -208,7 +208,7 @@ def process_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
     # DECODE #
     ##########
     else:
-        # define teacher forcing proba
+        # define teacher forcing probability
         use_teacher_forcing = False  # do not feed in ground truth token to decoder
         try:
             tf_prob = args.teacher_forcing_prob
@@ -271,17 +271,17 @@ def process_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
 def main():
     # Hyper-parameters...
     batch_size = 8
-    max_epoch = 100
+    max_epoch = 50
     log_interval = 1  # lo stats every k batch
-    show_attention_interval = -1  # don't show attention weights
+    show_attention_interval = -1
 
     ##########################################################################
     # Load dataset
     ##########################################################################
     print("\nLoading data...")
     corpus = Corpus()
-    train_src, train_tgt = corpus.get_data('test_hred_train_data.txt')
-    test_src, test_tgt = corpus.get_data('test_hred_test_data.txt')
+    train_src, train_tgt = corpus.get_data_from_lines('../train_data.txt')
+    test_src, test_tgt = corpus.get_data_from_lines('../test_data.txt')
     # make sure source and target have the same number of examples
     assert len(train_src) == len(train_tgt)
     assert len(test_src) == len(test_tgt)
@@ -378,6 +378,9 @@ def main():
         set_gradient(context_encoder, True)
         set_gradient(decoder, True)
 
+        ####
+        # Training pass
+        ####
         train_loss = 0.0
         iters = 0.0
         start_time = time.time()
@@ -390,11 +393,10 @@ def main():
             iters += 1
 
             if n_batch % log_interval == 0:
-                current_loss = train_loss / iters
                 elapsed = time.time() - start_time
                 print("| epoch %3d | %3d/%3d batches | ms/batch %4f | train loss %6f | train ppl %6f" % (
-                    epoch, n_batch+1, num_train_batches, elapsed*1000 / log_interval,
-                    current_loss, np.exp(current_loss)
+                    epoch, n_batch+1, num_train_batches, elapsed * 1000 / log_interval,
+                    loss, np.exp(loss)
                 ))
                 start_time = time.time()
 
@@ -414,6 +416,9 @@ def main():
         set_gradient(context_encoder, False)
         set_gradient(decoder, False)
 
+        ####
+        # Validation pass
+        ####
         valid_loss = 0.0
         iters = 0.0
 
@@ -444,13 +449,13 @@ def main():
                     b_src.append(sentences)
                     b_pp_index += length
 
-                for i in range(2):
+                for i in range(bs):
                     src_sequence = b_src[i]
                     # b_tgt ~(bs, max_tgt_len)
                     tgt_sequence = [corpus.dictionary.idx2word[x] for x in b_tgt[i, :]]
                     # attentions ~(bs, max_src, max_tgt)
                     att_sequence = attentions[i].transpose(1, 0)  # ~(max_tgt_len, max_src_len)
-                    show_attention(src_sequence, tgt_sequence, att_sequence, name=None)
+                    show_attention(src_sequence, tgt_sequence, att_sequence, name=str(n_batch)+':'+str(i))
 
         valid_loss /= iters
         scheduler.step(valid_loss)
@@ -502,8 +507,9 @@ def main():
     set_gradient(context_encoder, False)
     set_gradient(decoder, False)
 
-    pred_sentences = []
-    gold_sentences = []
+    src_sentences  = []  # store context sentence
+    pred_sentences = []  # store predicted sentences
+    gold_sentences = []  # store ground truth sentences
 
     for n_batch, batch in enumerate(test_batches):
         _, predictions, _ = process_one_batch(
@@ -512,15 +518,28 @@ def main():
         )
         # predictions ~(bs, max_len)
 
-        # true target
-        gold = batch[1]  # ~(bs, max_tgt_len)
+        src_pp, gold, len_src_pp, len_src, len_tgt = batch
+
+        bs = gold.size(0)
+        max_n_sent = max(len_src)     # max number of sentences in one context
+        max_n_toks = max(len_src_pp)  # max number of tokens per sentence
+
+        # Put back together the sentences belonging to the same context
+        src = torch.zeros(bs, max_n_sent, max_n_toks)
+        batch_pp_index = 0  # keep track of where we are in the batch++ of individual sentences
+        for batch_index, length in enumerate(len_src):
+            src[batch_index, 0:length, :] = src_pp[batch_pp_index: batch_pp_index + length]
+            batch_pp_index += length
 
         # convert back to numpy
-        predictions = predictions.numpy()
-        gold = gold.numpy()
+        predictions = predictions.numpy()  # ~(bs, max_len)
+        gold = gold.numpy()                # ~(bs, max_tgt_len)
+        src = src.numpy()                  # ~(bs, max_n_sent, max_n_toks)
 
         for i in range(predictions.shape[0]):
             # get tokens from the predicted indices
+            src_tokens = corpus.to_str(src[i], filter_pad=True)  # list of sentences
+            src_tokens = ' '.join(src_tokens)  # full context
             pred_tokens = [corpus.dictionary.idx2word[x] for x in predictions[i]]
             gold_tokens = [corpus.dictionary.idx2word[x] for x in gold[i]]
 
@@ -528,15 +547,17 @@ def main():
             pred_tokens = filter(lambda x: x != corpus.pad_tag, pred_tokens)
             gold_tokens = filter(lambda x: x != corpus.pad_tag, gold_tokens)
 
+            src_sentences.append(src_tokens)
             pred_sentences.append(pred_tokens)
             gold_sentences.append(gold_tokens)
 
-    with open("test_hred_test_predictions.txt", "w") as f:
-        for p_sent, g_sent in zip(pred_sentences, gold_sentences):
+    with open("hred_test_predictions.txt", "w") as f:
+        for s_sent, p_sent, g_sent in zip(src_sentences, pred_sentences, gold_sentences):
+            f.write('src: ' + s_sent + '\n')
             f.write('gold: ' + ' '.join(g_sent) + '\n')
             f.write('pred: ' + ' '.join(p_sent) + '\n\n')
 
-    print("test_hred_test_predictions.txt is saved.")
+    print("hred_test_predictions.txt is saved.")
 
 
 if __name__ == '__main__':
@@ -544,12 +565,19 @@ if __name__ == '__main__':
     teacher_forcing_prob = 0.99  # used in step()
     max_length = 100             # used in step() for beam search
     clip = 0.25                  # used in step() for clipping gradient norm
+    seed = 14                    # random seed for reproducibility
+
+    # Set the random seed manually for reproducibility.
+    random.seed(seed)
+    torch.manual_seed(seed)
 
     # Device configuration
     if torch.cuda.is_available():
         device = torch.device('cuda')
         device_idx = torch.cuda.current_device()
         print("\nUsing GPU", torch.cuda.get_device_name(device_idx))
+        # Set the random seed manually for reproducibility.
+        torch.cuda.manual_seed(seed)
     else:
         device = torch.device('cpu')
         print("\nNo GPU available :(")

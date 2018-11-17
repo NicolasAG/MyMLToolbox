@@ -190,9 +190,11 @@ class Corpus(object):
         self.dictionary.add_word(self.unk_tag)
         self.dictionary.add_word(self.eos_tag)
 
-    def get_data(self, path):
+    def get_data_from_lines(self, path, context_size=-1):
         """
+        Reads an input file where each line is considered as one conversation with more than one sentence.
         :param path: path to a readable file
+        :param context_size: number of sentences to keep in the context
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
         src = []  # list of contexts
@@ -206,13 +208,23 @@ class Corpus(object):
                     continue
 
                 sentences = sent_tokenize(line)  # list of sentences in this line
+                start = 0  # index of the first sentences to keep in the `src`
 
-                # for all sentences except but the last one,
+                # for all sentences except the last one,
                 # add words to dictionary & make a (src - tgt) pair
                 for s_id in range(len(sentences) - 1):
+                    if context_size > 0:
+                        sentences_to_consider = sentences[start: s_id + 1]
+                        # move pointer to the right when `src` reached its max capacity
+                        if len(sentences_to_consider) == context_size:
+                            start += 1  # sliding window ->->
+                    else:
+                        # take all sentences before i+1 as src
+                        sentences_to_consider = sentences[:s_id+1]
+
                     # lowercase, strip, to ascii
-                    src_sents = normalize_string(  # take all sentences before i+1 as src
-                        (' ' + self.eos_tag + ' ' + self.sos_tag + ' ').join(sentences[:s_id+1])
+                    src_sents = normalize_string(
+                        (' ' + self.eos_tag + ' ' + self.sos_tag + ' ').join(sentences_to_consider)
                     )
                     tgt_sent = normalize_string(sentences[s_id+1])
 
@@ -239,10 +251,11 @@ class Corpus(object):
 
         return src, tgt
 
-    def to_str(self, idx_sents):
+    def to_str(self, idx_sents, filter_pad=False):
         """
         Convert a batch of idx to strings
         :param idx_sents: list of idx sentence [ [id1 id2 id3], ..., [id1 id2 id3] ]
+        :param filter_pad: remove <pad> tokens in the string format
         :return strings: list of sentences [ "w1 w2 w3", ..., "w1 w2 w3" ]
         """
         if isinstance(idx_sents, torch.Tensor):
@@ -250,11 +263,17 @@ class Corpus(object):
 
         strings = []
         for idx_sent in idx_sents:
-            str_sent = ""
-            for idx_word in idx_sent:
-                str_sent += self.dictionary.idx2word[idx_word] + " "
-            strings.append(str_sent.strip())
+            str_sent = [self.dictionary.idx2word[x] for x in idx_sent]
+
+            if filter_pad:
+                # filter out '<pad>'
+                str_sent = filter(lambda x: x != self.pad_tag, str_sent)
+
+            str_sent = ' '.join(str_sent)
+            strings.append(str_sent)
         return strings
+
+
 
     def to_idx(self, str_sents):
         """
@@ -491,7 +510,7 @@ def masked_cross_entropy(logits, target, lengths):
     return loss
 
 
-def show_attention(input_sequence, output_words, attentions, name=None):
+def show_attention(input_sequence, output_words, attentions, name=""):
     """
     :param input_sequence: list of input strings
     :param output_words: list of output words
@@ -501,7 +520,7 @@ def show_attention(input_sequence, output_words, attentions, name=None):
     ax = fig.add_subplot(111)
     cax = ax.matshow(attentions.numpy(), cmap='bone')
 
-    if type(input_sequence) == type(''):
+    if isinstance(input_sequence, str):
         input_sequence = input_sequence.split()
 
     # set up axes
@@ -511,7 +530,7 @@ def show_attention(input_sequence, output_words, attentions, name=None):
     ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
     ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
 
-    if name is not None:
+    if len(name) > 0:
         if not os.path.exists('images'):
             os.makedirs('images')
         plt.savefig('images/' + str(name) + '.png')

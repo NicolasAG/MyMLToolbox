@@ -12,7 +12,7 @@ import time
 # seaborn.set_context(context='talk')
 
 import sys
-sys.path.append('..')
+sys.path.append('../..')
 from models.encdec import Batch, subsequent_mask
 from models.transformer import make_model, NoamOpt, LabelSmoothing
 

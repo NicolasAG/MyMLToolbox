@@ -59,10 +59,10 @@ class HREDEncoder(nn.Module):
 
     def forward(self, x, lengths, h_0=None):
         """
-        :param x: input sequence of vectors ~(bs, seq, size)
+        :param x: input sequence of vectors ~(bs, max_src_len, size)
         :param lengths: length of each sequence in x ~(bs)
         :param h_0: initial hidden state ~(n_dir*n_layers, bs, size)
-        :return: out ~(bs, seq, n_dir*size): output features h_t from the last layer, for each t
+        :return: out ~(bs, max_src_len, n_dir*size): output features h_t from the last layer, for each t
                  h   ~(n_layers*n_dir, bs, size): hidden state for t = seq_len
         """
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -79,7 +79,7 @@ class HREDEncoder(nn.Module):
             out, (h_t, c_t) = self.rnn(packed, h_0)
             # unpack (back to padded)
             out, out_lengths = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True)
-            # out ~(bs, seq, n_dir*size)
+            # out ~(bs, max_src_len, n_dir*size)
             # h_t ~(n_dir*n_layers, bs, size)
             # c_t ~(n_dir*n_layers, bs, size)
 
@@ -93,7 +93,7 @@ class HREDEncoder(nn.Module):
             out = out.view(out.size(0), out.size(1), self.n_dir, self.hidden_size)
             h_t = h_t.view(self.n_layers, self.n_dir, h_t.size(1),  self.hidden_size)
             c_t = c_t.view(self.n_layers, self.n_dir, c_t.size(1), self.hidden_size)
-            # out ~(bs, seq, n_dir, size)
+            # out ~(bs, max_src_len, n_dir, size)
             # h_t ~(n_layers, n_dir, bs, size)
             # c_t ~(n_layers, n_dir, bs, size)
             '''
@@ -104,7 +104,7 @@ class HREDEncoder(nn.Module):
             out, h_t = self.rnn(packed, h_0)
             # unpack (back to padded)
             out, out_lengths = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True)
-            # out ~(bs, seq, n_dir*size)
+            # out ~(bs, max_src_len, n_dir*size)
             # h_t ~(n_dir*n_layers, bs, size)
 
             # unsort tensor batches to match original input order
@@ -115,7 +115,7 @@ class HREDEncoder(nn.Module):
             # separate the directions with forward and backward being direction 0 and 1 respectively.
             out = out.view(out.size(0), out.size(1), self.n_dir, self.hidden_size)
             h_t = h_t.view(self.n_layers, self.n_dir, h_t.size(1), self.hidden_size)
-            # out ~(bs, seq, n_dir, size)
+            # out ~(bs, max_src_len, n_dir, size)
             # h_t ~(n_layers, n_dir, bs, size)
             '''
 
@@ -221,7 +221,7 @@ class SentenceEncoder(HREDEncoder):
                    c_n.view(num_layers, num_directions, batch, hidden_size).
         """
         # extra for sentence encoder: feed sequence to the embedding layer
-        x = self.embedding(x)  # ~(bs, seq, embedding_size)
+        x = self.embedding(x)  # ~(bs, max_src_len, embedding_size)
         return super(SentenceEncoder, self).forward(x, lengths, h_0)
 
 
@@ -245,10 +245,10 @@ class ContextEncoder(HREDEncoder):
 
     def forward(self, x, lengths, h_0=None):
         """
-        :param x: input sequence of vectors ~(bs, seq, size)
+        :param x: input sequence of vectors ~(bs, max_src_len, size)
         :param lengths: length of each sequence in x ~(bs)
         :param h_0: initial hidden state ~(n_dir*n_layers, bs, size)
-        :return: out ~(bs, seq, n_dir*size): output features h_t from the last layer, for each t
+        :return: out ~(bs, max_src_len, n_dir*size): output features h_t from the last layer, for each t
                 h    ~(n_layers*n_dir, bs, size): hidden state for t = seq_len
         """
         return super(ContextEncoder, self).forward(x, lengths, h_0)
@@ -346,7 +346,7 @@ class HREDDecoder(nn.Module):
                 c_tm1 = None
 
         # concatenate the context and project it to hidden_size
-        decoder_hidden = torch.cat((h_tm1, context), 2)           # ~(n_layers, bs, hidden_size + context_size)
+        decoder_hidden = torch.cat((h_tm1, context), 2)               # ~(n_layers, bs, hidden_size + context_size)
         decoder_hidden = torch.tanh(self.pre_concat(decoder_hidden))  # ~(n_layers, bs, hidden_size)
 
         # feed in input & new context to RNN
@@ -426,11 +426,11 @@ class AttentionDecoder(HREDDecoder):
         :param context: context vector of all layers at the last time step
                         ~(n_layers, bs, n_dir*size)
         :param enc_outs: encoder output vectors of the last layer at each time step
-                         ~(bs, enc_seq, n_dir*size)
+                         ~(bs, max_src_len, n_dir*size)
 
         :return: out          ~(bs, vocab_size)
                  h_t          ~(n_layers, bs, hidden_size)
-                 attn_weights ~(bs, seq=1, enc_seq)
+                 attn_weights ~(bs, seq=1, max_src_len)
         """
         x = self.embedding(x).view(x.size(0), 1, -1)  # ~(bs, seq=1, embedding_size)
         x = self.dropout(x)
@@ -446,7 +446,7 @@ class AttentionDecoder(HREDDecoder):
                 c_tm1 = None
 
         # concatenate the context and project it to hidden_size
-        decoder_hidden = torch.cat((h_tm1, context), 2)           # ~(n_layers, bs, hidden_size + context_size)
+        decoder_hidden = torch.cat((h_tm1, context), 2)               # ~(n_layers, bs, hidden_size + context_size)
         decoder_hidden = torch.tanh(self.pre_concat(decoder_hidden))  # ~(n_layers, bs, hidden_size)
 
         # feed in input & new context to RNN
@@ -463,10 +463,10 @@ class AttentionDecoder(HREDDecoder):
         # Compute attention weights
         ####
         # enc_outs ~(bs, enc_seq, enc_size)
-        attn_weights = self.attn(tmp_out, enc_outs)  # ~(bs, dec_seq=1, enc_seq)
+        attn_weights = self.attn(tmp_out, enc_outs)  # ~(bs, dec_seq=1, max_src_len)
 
         # build context from encoder outputs & attention weights
-        w_context = enc_outs * attn_weights.permute(0, 2, 1)  # ~(bs, enc_seq, enc_size)
+        w_context = enc_outs * attn_weights.permute(0, 2, 1)  # ~(bs, max_src_len, enc_size)
         w_context = w_context.sum(dim=1)                      # ~(bs, enc_size)
 
         # get new outputs after concatenating weighted context
