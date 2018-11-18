@@ -5,12 +5,13 @@
 #
 # python hred.py <training_data> <dictionary>
 """
+import random
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from utils import AttentionModule
+from utils import AttentionModule, split_list
 
 
 class HREDEncoder(nn.Module):
@@ -664,6 +665,69 @@ def build_hred(vocab_size, args=None):
     return sent_encoder, context_encoder, decoder
 
 
+def hred_minibatch_generator(bs, src, tgt, corpus, shuffle=True):
+    """
+    Generator used to feed mini-batches
+    :param bs: batch size
+    :param src: list of source sentences
+    :param tgt: list of tgt sentences
+    :param corpus: utils.Corpus object
+    """
+    # Note: in HRED, we first encode each sentences *independently*,
+    # then we encode the list of sentences as different contexts.
+    # We make the decision that 'bs' represents the number of contexts in a batch,
+    # hence, the number of sentences might be much greater (bs_sent >> bs).
+
+    # transform string sentences into idx sentences
+    src = corpus.to_idx(src)
+    tgt = corpus.to_idx(tgt)
+
+    nb_elem = len(src)  # number of examples in total
+    indices = list(range(nb_elem))
+
+    if shuffle:
+        random.shuffle(indices)
+
+    while nb_elem > 0:  # while there are still some items left
+        b_src_pp = []    # batch of individual sentences
+        len_src_pp = []  # number of tokens in each sentence
+        len_src = []     # number of sentences for each context
+
+        b_tgt = []       # batch of target sentences
+        len_tgt = []     # number of tokens in target sentences
+
+        count = 0  # number of items in a batch
+        while count < bs and nb_elem > 0:
+            ind = indices.pop()  # remove and return last item
+            count += 1           # will add 1 item to a batch
+            nb_elem -= 1         # one item was removed from all
+
+            context = src[ind]
+            target  = tgt[ind]
+
+            # split sentences around each " <eos>"
+            sentences = split_list(context, [corpus.dictionary.word2idx[corpus.eos_tag]])
+            # add <eos> back to all sentences except empty ones
+            sentences = [s + [corpus.dictionary.word2idx[corpus.eos_tag]] for s in sentences if len(s) > 0]
+
+            b_src_pp.extend(sentences)      # add a bunch of individual sentences
+            len_src_pp.extend([len(s) for s in sentences])  # add a bunch of sentence lengths
+            len_src.append(len(sentences))  # number of sentences in this context
+            b_tgt.append(target)            # append target sentence
+            len_tgt.append(len(target))     # number of tokens in target sentence
+
+        # Fill in shorter sentences to make a tensor
+        max_src_pp = max(len_src_pp)  # max length of source sentences
+        max_tgt    = max(len_tgt)     # max length of target sentences
+
+        b_src_pp = [corpus.fill_seq(seq, max_src_pp) for seq in b_src_pp]
+        b_tgt = [corpus.fill_seq(seq, max_tgt) for seq in b_tgt]
+
+        b_src_pp = torch.LongTensor(b_src_pp)  # ~(bs++, seq_len)
+        b_tgt = torch.LongTensor(b_tgt)        # ~(bs, seq_len)
+        yield b_src_pp, b_tgt, len_src_pp, len_src, len_tgt
+
+
 def build_seq2seq(vocab_size, args=None):
     """
     No context encoder
@@ -804,3 +868,55 @@ def build_seq2seq(vocab_size, args=None):
         )
 
     return encoder, decoder
+
+
+def seq2seq_minibatch_generator(bs, src, tgt, corpus, shuffle=True):
+    """
+    Generator used to feed mini-batches
+    :param bs: batch size
+    :param src: list of source sentences
+    :param tgt: list of tgt sentences
+    :param corpus: utils.Corpus object
+    """
+    # transform string sentences into idx sentences
+    src = corpus.to_idx(src)
+    tgt = corpus.to_idx(tgt)
+
+    nb_elem = len(src)  # number of examples in total
+    indices = list(range(nb_elem))
+
+    if shuffle:
+        random.shuffle(indices)
+
+    while nb_elem > 0:  # while there are still some items left
+        b_src   = []  # batch of src sentences
+        len_src = []  # number of tokens in src sentences
+        b_tgt   = []  # batch of target sentences
+        len_tgt = []  # number of tokens in target sentences
+
+        count = 0  # number of items in a batch
+        while count < bs and nb_elem > 0:
+            ind = indices.pop()  # remove and return last item
+            count += 1           # will add 1 item to a batch
+            nb_elem -= 1         # one item was removed from all
+
+            context = src[ind]
+            target  = tgt[ind]
+
+            b_src.append(context)         # append source sequence
+            len_src.append(len(context))  # number of tokens in source sequence
+            b_tgt.append(target)          # append target sentence
+            len_tgt.append(len(target))   # number of tokens in target sentence
+
+        # Fill in shorter sentences to make a tensor
+        max_src = max(len_src)  # max length of source sentences
+        max_tgt = max(len_tgt)  # max length of target sentences
+
+        b_src = [corpus.fill_seq(seq, max_src) for seq in b_src]
+        b_tgt = [corpus.fill_seq(seq, max_tgt) for seq in b_tgt]
+
+        b_src = torch.LongTensor(b_src)  # ~(bs, max_src_len)
+        b_tgt = torch.LongTensor(b_tgt)  # ~(bs, max_tgt_len)
+        yield b_src, b_tgt, len_src, len_tgt
+
+

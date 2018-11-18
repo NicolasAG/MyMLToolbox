@@ -25,57 +25,7 @@ sys.path.append('../..')
 
 from utils import Dictionary, Corpus, set_gradient, masked_cross_entropy, show_attention
 from beam_wrapper import BSWrapper
-from models.hred import build_seq2seq, AttentionDecoder
-
-
-def minibatch_generator(bs, src, tgt, corpus, shuffle=True):
-    """
-    Generator used to feed mini-batches
-    :param bs: batch size
-    :param src: list of source sentences
-    :param tgt: list of tgt sentences
-    :param corpus: utils.Corpus object
-    """
-    # transform string sentences into idx sentences
-    src = corpus.to_idx(src)
-    tgt = corpus.to_idx(tgt)
-
-    nb_elem = len(src)  # number of examples in total
-    indices = list(range(nb_elem))
-
-    if shuffle:
-        random.shuffle(indices)
-
-    while nb_elem > 0:  # while there are still some items left
-        b_src   = []  # batch of src sentences
-        len_src = []  # number of tokens in src sentences
-        b_tgt   = []  # batch of target sentences
-        len_tgt = []  # number of tokens in target sentences
-
-        count = 0  # number of items in a batch
-        while count < bs and nb_elem > 0:
-            ind = indices.pop()  # remove and return last item
-            count += 1           # will add 1 item to a batch
-            nb_elem -= 1         # one item was removed from all
-
-            context = src[ind]
-            target  = tgt[ind]
-
-            b_src.append(context)         # append source sequence
-            len_src.append(len(context))  # number of tokens in source sequence
-            b_tgt.append(target)          # append target sentence
-            len_tgt.append(len(target))   # number of tokens in target sentence
-
-        # Fill in shorter sentences to make a tensor
-        max_src = max(len_src)  # max length of source sentences
-        max_tgt = max(len_tgt)  # max length of target sentences
-
-        b_src = [corpus.fill_seq(seq, max_src) for seq in b_src]
-        b_tgt = [corpus.fill_seq(seq, max_tgt) for seq in b_tgt]
-
-        b_src = torch.LongTensor(b_src)  # ~(bs, max_src_len)
-        b_tgt = torch.LongTensor(b_tgt)  # ~(bs, max_tgt_len)
-        yield b_src, b_tgt, len_src, len_tgt
+from models.hred import build_seq2seq, seq2seq_minibatch_generator, AttentionDecoder
 
 
 def process_one_batch(encoder, decoder, batch, corpus, optimizer=None, beam_size=0):
@@ -273,7 +223,7 @@ def main():
 
     # Save dictionary for generation
     print("saving dictionary...")
-    with open('hred_vocab.pt', 'wb') as f:
+    with open('seq2seq_vocab.pt', 'wb') as f:
         pkl.dump(corpus.dictionary, f)
     print("done.")
 
@@ -316,7 +266,7 @@ def main():
         epoch_start_time = time.time()
 
         # initialize batches
-        train_batches = minibatch_generator(
+        train_batches = seq2seq_minibatch_generator(
             bs=batch_size, src=train_src, tgt=train_tgt, corpus=corpus, shuffle=True
         )
 
@@ -349,7 +299,7 @@ def main():
         train_loss = train_loss / iters
 
         # initialize batches
-        test_batches = minibatch_generator(
+        test_batches = seq2seq_minibatch_generator(
             bs=batch_size, src=test_src, tgt=test_tgt, corpus=corpus, shuffle=False
         )
 
@@ -380,12 +330,12 @@ def main():
                 b_src = b_src.numpy()  # ~(bs, max_src_len)
                 b_tgt = b_tgt.numpy()  # ~(bs, max_tgt_len)
 
-                for i in range(2):
+                for i in range(bs):
                     src_sequence = [corpus.dictionary.idx2word[x] for x in b_src[i, :]]
                     tgt_sequence = [corpus.dictionary.idx2word[x] for x in b_tgt[i, :]]
                     # attentions ~(bs, max_src, max_tgt)
                     att_sequence = attentions[i].transpose(1, 0)  # ~(max_tgt_len, max_src_len)
-                    show_attention(src_sequence, tgt_sequence, att_sequence, name=None)
+                    show_attention(src_sequence, tgt_sequence, att_sequence, name=str(n_batch)+':'+str(i))
 
         valid_loss /= iters
         scheduler.step(valid_loss)
@@ -421,7 +371,7 @@ def main():
         decoder.load_state_dict(torch.load(f))
 
     # initialize batches
-    test_batches = minibatch_generator(
+    test_batches = seq2seq_minibatch_generator(
         bs=batch_size, src=test_src, tgt=test_tgt, corpus=corpus, shuffle=False
     )
 

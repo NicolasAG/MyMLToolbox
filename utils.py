@@ -13,6 +13,18 @@ import matplotlib.ticker as ticker
 from nltk import sent_tokenize, word_tokenize
 
 
+def str2bool(v):
+    """
+    Used in argument parser for custom argument type
+    """
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected. Got %s' % v)
+
+
 def clones(module, n):
     """
     Produces N identical layers
@@ -190,11 +202,13 @@ class Corpus(object):
         self.dictionary.add_word(self.unk_tag)
         self.dictionary.add_word(self.eos_tag)
 
-    def get_data_from_lines(self, path, context_size=-1):
+    def get_data_from_lines(self, path, max_context_size=-1, reverse_tgt=False, debug=False):
         """
         Reads an input file where each line is considered as one conversation with more than one sentence.
         :param path: path to a readable file
-        :param context_size: number of sentences to keep in the context
+        :param max_context_size: number of sentences to keep in the context
+        :param reverse_tgt: reverse tokens of the tgt sequence
+        :param debug: print a few item examples
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
         src = []  # list of contexts
@@ -213,10 +227,10 @@ class Corpus(object):
                 # for all sentences except the last one,
                 # add words to dictionary & make a (src - tgt) pair
                 for s_id in range(len(sentences) - 1):
-                    if context_size > 0:
+                    if max_context_size > 0:
                         sentences_to_consider = sentences[start: s_id + 1]
                         # move pointer to the right when `src` reached its max capacity
-                        if len(sentences_to_consider) == context_size:
+                        if len(sentences_to_consider) == max_context_size:
                             start += 1  # sliding window ->->
                     else:
                         # take all sentences before i+1 as src
@@ -246,8 +260,23 @@ class Corpus(object):
                         for word in src_words:
                             self.dictionary.add_word(word)
 
+                    if reverse_tgt:
+                        tgt_words = tgt_words[::-1]
+
                     src.append(' '.join(src_words))
                     tgt.append(' '.join(tgt_words))
+
+        if debug:
+            # print a few random examples
+            start1 = 0
+            start2 = 50
+            for src_ex, tgt_ex in zip(src[start1: start1+3], tgt[start1: start1+3]):
+                print('src:', src_ex)
+                print('tgt:', tgt_ex)
+            if len(src) > start2+3:
+                for src_ex, tgt_ex in zip(src[start2: start2+3], tgt[start2: start2+3]):
+                    print('src:', src_ex)
+                    print('tgt:', tgt_ex)
 
         return src, tgt
 

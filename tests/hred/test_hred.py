@@ -23,72 +23,9 @@ import time
 import sys
 sys.path.append('../..')
 
-from utils import Dictionary, Corpus, set_gradient, split_list, masked_cross_entropy, show_attention
+from utils import Dictionary, Corpus, set_gradient, masked_cross_entropy, show_attention
 from beam_wrapper import BSWrapper
-from models.hred import build_hred, AttentionDecoder
-
-
-def minibatch_generator(bs, src, tgt, corpus, shuffle=True):
-    """
-    Generator used to feed mini-batches
-    :param bs: batch size
-    :param src: list of source sentences
-    :param tgt: list of tgt sentences
-    :param corpus: utils.Corpus object
-    """
-    # Note: in HRED, we first encode each sentences *independently*,
-    # then we encode the list of sentences as different contexts.
-    # We make the decision that 'bs' represents the number of contexts in a batch,
-    # hence, the number of sentences might be much greater (bs_sent >> bs).
-
-    # transform string sentences into idx sentences
-    src = corpus.to_idx(src)
-    tgt = corpus.to_idx(tgt)
-
-    nb_elem = len(src)  # number of examples in total
-    indices = list(range(nb_elem))
-
-    if shuffle:
-        random.shuffle(indices)
-
-    while nb_elem > 0:  # while there are still some items left
-        b_src_pp = []    # batch of individual sentences
-        len_src_pp = []  # number of tokens in each sentence
-        len_src = []     # number of sentences for each context
-
-        b_tgt = []       # batch of target sentences
-        len_tgt = []     # number of tokens in target sentences
-
-        count = 0  # number of items in a batch
-        while count < bs and nb_elem > 0:
-            ind = indices.pop()  # remove and return last item
-            count += 1           # will add 1 item to a batch
-            nb_elem -= 1         # one item was removed from all
-
-            context = src[ind]
-            target  = tgt[ind]
-
-            # split sentences around each " <eos>"
-            sentences = split_list(context, [corpus.dictionary.word2idx[corpus.eos_tag]])
-            # add <eos> back to all sentences except empty ones
-            sentences = [s + [corpus.dictionary.word2idx[corpus.eos_tag]] for s in sentences if len(s) > 0]
-
-            b_src_pp.extend(sentences)      # add a bunch of individual sentences
-            len_src_pp.extend([len(s) for s in sentences])  # add a bunch of sentence lengths
-            len_src.append(len(sentences))  # number of sentences in this context
-            b_tgt.append(target)            # append target sentence
-            len_tgt.append(len(target))     # number of tokens in target sentence
-
-        # Fill in shorter sentences to make a tensor
-        max_src_pp = max(len_src_pp)  # max length of source sentences
-        max_tgt    = max(len_tgt)     # max length of target sentences
-
-        b_src_pp = [corpus.fill_seq(seq, max_src_pp) for seq in b_src_pp]
-        b_tgt = [corpus.fill_seq(seq, max_tgt) for seq in b_tgt]
-
-        b_src_pp = torch.LongTensor(b_src_pp)  # ~(bs++, seq_len)
-        b_tgt = torch.LongTensor(b_tgt)        # ~(bs, seq_len)
-        yield b_src_pp, b_tgt, len_src_pp, len_src, len_tgt
+from models.hred import build_hred, hred_minibatch_generator, AttentionDecoder
 
 
 def process_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None, beam_size=0):
@@ -365,7 +302,7 @@ def main():
         epoch_start_time = time.time()
 
         # initialize batches
-        train_batches = minibatch_generator(
+        train_batches = hred_minibatch_generator(
             bs=batch_size, src=train_src, tgt=train_tgt, corpus=corpus, shuffle=True
         )
 
@@ -403,7 +340,7 @@ def main():
         train_loss = train_loss / iters
 
         # initialize batches
-        test_batches = minibatch_generator(
+        test_batches = hred_minibatch_generator(
             bs=batch_size, src=test_src, tgt=test_tgt, corpus=corpus, shuffle=False
         )
 
@@ -494,7 +431,7 @@ def main():
         decoder.load_state_dict(torch.load(f))
 
     # initialize batches
-    test_batches = minibatch_generator(
+    test_batches = hred_minibatch_generator(
         bs=batch_size, src=test_src, tgt=test_tgt, corpus=corpus, shuffle=False
     )
 
@@ -536,7 +473,7 @@ def main():
         gold = gold.numpy()                # ~(bs, max_tgt_len)
         src = src.numpy()                  # ~(bs, max_n_sent, max_n_toks)
 
-        for i in range(predictions.shape[0]):
+        for i in range(bs):
             # get tokens from the predicted indices
             src_tokens = corpus.to_str(src[i], filter_pad=True)  # list of sentences
             src_tokens = ' '.join(src_tokens)  # full context
