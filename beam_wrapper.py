@@ -58,7 +58,7 @@ def create_initial_beam(decoder_state, i, enc_ht, enc_out):
     # define encoder outputs for this batch
     if enc_out is not None:
         # means we are using attention
-        enc_out = enc_out[i].unsqueeze(0)  # ~(1, max_enc_len, n_dir*size)
+        enc_out = enc_out[i].unsqueeze(0)  # ~(1, max_src_len, n_dir*size)
 
     return BeamToken(
         path=[[]],              # no outputed words yet
@@ -72,12 +72,20 @@ def create_initial_beam(decoder_state, i, enc_ht, enc_out):
 
 
 class BSWrapper(object):
-    def __init__(self, decoder, decoder_state, enc_ht, batch_size, max_len, beam_size, corpus, enc_out=None):
+    def __init__(self, decoder, decoder_state, enc_ht, batch_size, max_len, beam_size,
+                 corpus, enc_out=None, reverse=False):
         self.decoder = decoder
         self.corpus = corpus
         self.max_len = max_len
         self.beam_size = beam_size
         self.batch_size = batch_size
+
+        if reverse:
+            self.start_token = self.corpus.eos_tag
+            self.final_token = self.corpus.sos_tag
+        else:
+            self.start_token = self.corpus.sos_tag
+            self.final_token = self.corpus.eos_tag
 
         self.beam = [
             create_initial_beam(decoder_state, i, enc_ht, enc_out)
@@ -86,7 +94,7 @@ class BSWrapper(object):
 
     def decode(self):
         init_input = [
-            np.array([self.corpus.dictionary.word2idx[self.corpus.sos_tag]])
+            np.array([self.corpus.dictionary.word2idx[self.start_token]])
             for _ in range(self.batch_size)
         ]  # ~(bs, len=1 for now)
 
@@ -117,6 +125,7 @@ class BSWrapper(object):
     def eval_one_beam(self, initial_beam, keep_trajectories=False):
         """
         Perform beam search
+        :param keep_trajectories: Keep trace of the previous beam if we want to keep the trajectory
         """
         to_evaluate = [initial_beam]
         memory = []
@@ -127,7 +136,7 @@ class BSWrapper(object):
             for beam_token in to_evaluate:
 
                 # if token is final, directly put it into memory
-                if beam_token.word_id[0][-1] == self.corpus.dictionary.word2idx[self.corpus.eos_tag]:
+                if beam_token.word_id[0][-1] == self.corpus.dictionary.word2idx[self.final_token]:
                     memory.append(beam_token)
                     continue
 
