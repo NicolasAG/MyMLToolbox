@@ -1,8 +1,11 @@
+import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 import os
+import sys
 import copy
 import math
 import unicodedata
@@ -11,6 +14,9 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
 from nltk import sent_tokenize, word_tokenize
+
+from gensim.models import KeyedVectors
+import pyprind
 
 
 def str2bool(v):
@@ -80,6 +86,41 @@ def scaled_dot_prod_attention(query, key, value, mask=None, dropout=None):
     if dropout is not None:
         p_attn = dropout(p_attn)
     return torch.matmul(p_attn, value), p_attn
+
+
+def get_google_word2vec(path_word2vec):
+    """
+    Loads the 3Mx300 matrix
+    """
+    assert os.path.exists(path_word2vec)
+    return KeyedVectors.load_word2vec_format(path_word2vec, binary=True)
+
+
+def set_word_embeddings(embedding_layer, device, word2vec, corpus, requires_grad=True):
+    """
+    set embedding layer of an rnn to a specific word2vec dictionary
+    :param embedding_layer: torch.nn.Embedding layer
+    :param device: torch device to put the parameters in (cuda or cpu)
+    :param word2vec: mapping from word to vectors
+    :param corpus: Corpus object with Dictionary
+    :param requires_grad: fine-tune the embeddings
+    """
+    embeddings = np.random.uniform(-0.1, 0.1, size=(len(corpus.dictionary), word2vec.vector_size))
+    count = 0
+    for tok_id in range(len(corpus.dictionary)):
+        try:
+            embeddings[tok_id] = word2vec[corpus.dictionary.idx2word[tok_id]]
+            count += 1
+        except KeyError:
+            pass
+
+    print("Got %d/%d = %.6f pretrained embeddings" % (
+        count, len(corpus.dictionary), float(count) / len(corpus.dictionary)
+    ))
+
+    embeddings = torch.from_numpy(embeddings).float()  # convert numpy array to torch float tensor
+    embeddings = embeddings.to(device)
+    embedding_layer.weight = torch.nn.Parameter(embeddings, requires_grad=requires_grad)
 
 
 def unicode_to_ascii(s):
@@ -202,19 +243,29 @@ class Corpus(object):
         self.dictionary.add_word(self.unk_tag)
         self.dictionary.add_word(self.eos_tag)
 
-    def get_data_from_lines(self, path, max_context_size=-1, reverse_tgt=False, debug=False):
+    def get_data_from_lines(self, path, max_context_size=-1, reverse_tgt=False, debug=False, max_n_lines=-1):
         """
         Reads an input file where each line is considered as one conversation with more than one sentence.
         :param path: path to a readable file
         :param max_context_size: number of sentences to keep in the context
         :param reverse_tgt: reverse tokens of the tgt sequence
         :param debug: print a few item examples
+        :param max_n_lines: consider top lines
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
         src = []  # list of contexts
         tgt = []  # list of next sentences
 
+        f = open(path, 'r')
+        num_lines = sum(1 for _ in f)
+        print("%d lines" % num_lines)
+        f.close()
+
         with open(path, 'r') as f:
+
+            # bar = pyprind.ProgBar(num_lines, stream=sys.stdout)
+            line_done = 0
+
             for line in f:
 
                 # skip empty lines
@@ -245,10 +296,12 @@ class Corpus(object):
                     # list of words in the sentences
                     src_words = [self.sos_tag] + word_tokenize(src_sents) + [self.eos_tag]
                     src_words = undo_word_tokenizer(src_words, self.sos_tag)
+                    src_words = undo_word_tokenizer(src_words, self.unk_tag)
                     src_words = undo_word_tokenizer(src_words, self.eos_tag)
 
                     tgt_words = [self.sos_tag] + word_tokenize(tgt_sent) + [self.eos_tag]
                     tgt_words = undo_word_tokenizer(tgt_words, self.sos_tag)
+                    tgt_words = undo_word_tokenizer(tgt_words, self.unk_tag)
                     tgt_words = undo_word_tokenizer(tgt_words, self.eos_tag)
 
                     # add words to dictionary
@@ -266,6 +319,15 @@ class Corpus(object):
                     src.append(' '.join(src_words))
                     tgt.append(' '.join(tgt_words))
 
+                # bar.update()
+                line_done += 1
+                if line_done % 1000 == 0:
+                    print("#", end='')
+
+                if 0 < max_n_lines <= line_done:
+                    print("")
+                    break
+
         if debug:
             # print a few random examples
             start1 = 0
@@ -273,10 +335,12 @@ class Corpus(object):
             for src_ex, tgt_ex in zip(src[start1: start1+3], tgt[start1: start1+3]):
                 print('src:', src_ex)
                 print('tgt:', tgt_ex)
+                print('')
             if len(src) > start2+3:
                 for src_ex, tgt_ex in zip(src[start2: start2+3], tgt[start2: start2+3]):
                     print('src:', src_ex)
                     print('tgt:', tgt_ex)
+                    print('')
 
         return src, tgt
 

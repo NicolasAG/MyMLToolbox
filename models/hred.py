@@ -561,7 +561,7 @@ def build_hred(vocab_size, args=None):
     ###
     # check hidden sizes for dot product attention
     ###
-    if attention.strip().lower() == 'dot':
+    if attention is not None and attention.strip().lower() == 'dot':
         # hidden size of context encoder & decoder must be the same
         if args:
             if dec_context_size != args.dec_hidden_size:
@@ -766,7 +766,7 @@ def build_seq2seq(vocab_size, args=None):
     ###
     # check hidden sizes for dot product attention
     ###
-    if attention.strip().lower() == 'dot':
+    if attention is not None and attention.strip().lower() == 'dot':
         # hidden size of encoder & decoder must be the same
         if args:
             if dec_context_size != args.dec_hidden_size:
