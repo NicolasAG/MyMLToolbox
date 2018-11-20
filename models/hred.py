@@ -481,6 +481,7 @@ class AttentionDecoder(HREDDecoder):
 
 default_params = {
     'embedding_size': 300,
+    'gensen': False,
     # sentence encoder
     'sent_enc_rnn_type': 'lstm',
     'sent_enc_hidden_size': 300,
@@ -511,11 +512,15 @@ def build_hred(vocab_size, args=None):
             cont_enc_input_size = args.sent_enc_hidden_size * 2
         else:
             cont_enc_input_size = args.sent_enc_hidden_size
+        if args.gensen:
+            cont_enc_input_size += 2048
     else:
         if default_params['sent_enc_bidirectional']:
             cont_enc_input_size = default_params['sent_enc_hidden_size'] * 2
         else:
             cont_enc_input_size = default_params['sent_enc_hidden_size']
+        if default_params['gensen']:
+            cont_enc_input_size += 2048
 
     sent_encoder = SentenceEncoder(
         rnn_type=args.sent_enc_rnn_type if args else default_params['sent_enc_rnn_type'],
@@ -543,7 +548,7 @@ def build_hred(vocab_size, args=None):
     else:
         attention = default_params['dec_attn_mode']
     ###
-    # Get decoder context size
+    # Get context encoder size
     ###
     if args:
         if args.cont_enc_bidirectional:
@@ -748,18 +753,22 @@ def build_seq2seq(vocab_size, args=None):
     else:
         attention = default_params['dec_attn_mode']
     ###
-    # Get decoder context size
+    # Get encoder context size
     ###
     if args:
         if args.sent_enc_bidirectional:
             dec_context_size = args.sent_enc_hidden_size * 2
         else:
             dec_context_size = args.sent_enc_hidden_size
+        if args.gensen:
+            dec_context_size += 2048
     else:
         if default_params['sent_enc_bidirectional']:
             dec_context_size = default_params['sent_enc_hidden_size'] * 2
         else:
             dec_context_size = default_params['sent_enc_hidden_size']
+        if default_params['gensen']:
+            dec_context_size += 2048
     ###
     # check hidden sizes for dot product attention
     ###

@@ -359,8 +359,9 @@ class Corpus(object):
                     print("#", end='')
 
                 if 0 < max_n_lines <= line_done:
-                    print("")
                     break
+
+            print("")
 
         if debug:
             # print a few random examples
@@ -386,6 +387,8 @@ class Corpus(object):
         :return strings: list of sentences [ "w1 w2 w3", ..., "w1 w2 w3" ]
         """
         if isinstance(idx_sents, torch.Tensor):
+            if idx_sents.is_cuda:
+                idx_sents = idx_sents.cpu()
             idx_sents = idx_sents.numpy()
 
         strings = []
