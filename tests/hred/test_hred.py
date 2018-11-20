@@ -377,22 +377,20 @@ def main():
                 b_tgt = b_tgt.numpy()
 
                 # Put back together the sentences belonging to the same context
-                b_src = []  # ~(bs, max_len)
+                b_src = []  # ~(bs, max_n_sentences)
                 b_pp_index = 0  # keep track of where we are in the batch++ of individual sentences
                 for batch_index, length in enumerate(len_src):
-                    sentences = []  # list of strings
-                    for s in b_src_pp[b_pp_index: b_pp_index + length]:
-                        sentences.append(' '.join([corpus.dictionary.idx2word[x] for x in s]))
+                    sentences = corpus.to_str(b_src_pp[b_pp_index: b_pp_index + length], filter_pad=False)
                     b_src.append(sentences)
                     b_pp_index += length
 
+                tgt_sequences = corpus.to_str(b_tgt)  # b_tgt ~(bs, max_tgt_len)
                 for i in range(bs):
                     src_sequence = b_src[i]
-                    # b_tgt ~(bs, max_tgt_len)
-                    tgt_sequence = [corpus.dictionary.idx2word[x] for x in b_tgt[i, :]]
+                    tgt_sequence = tgt_sequences[i]
                     # attentions ~(bs, max_src, max_tgt)
                     att_sequence = attentions[i].transpose(1, 0)  # ~(max_tgt_len, max_src_len)
-                    show_attention(src_sequence, tgt_sequence, att_sequence, name=str(n_batch)+':'+str(i))
+                    show_attention(src_sequence, tgt_sequence, att_sequence, name=str(n_batch) + ':' + str(i))
 
         valid_loss /= iters
         scheduler.step(valid_loss)
@@ -473,26 +471,23 @@ def main():
         gold = gold.numpy()                # ~(bs, max_tgt_len)
         src = src.numpy()                  # ~(bs, max_n_sent, max_n_toks)
 
+        # get tokens from the predicted indices
+        gold_tokens = corpus.to_str(gold, filter_pad=True)  # ~(bs, length)
+        pred_tokens = corpus.to_str(predictions, filter_pad=True)  # ~(bs, length)
         for i in range(bs):
             # get tokens from the predicted indices
             src_tokens = corpus.to_str(src[i], filter_pad=True)  # list of sentences
             src_tokens = ' '.join(src_tokens)  # full context
-            pred_tokens = [corpus.dictionary.idx2word[x] for x in predictions[i]]
-            gold_tokens = [corpus.dictionary.idx2word[x] for x in gold[i]]
-
-            # filter out '<pad>'
-            pred_tokens = filter(lambda x: x != corpus.pad_tag, pred_tokens)
-            gold_tokens = filter(lambda x: x != corpus.pad_tag, gold_tokens)
-
             src_sentences.append(src_tokens)
-            pred_sentences.append(pred_tokens)
-            gold_sentences.append(gold_tokens)
+
+        gold_sentences.extend(gold_tokens)
+        pred_sentences.extend(pred_tokens)
 
     with open("hred_test_predictions.txt", "w") as f:
         for s_sent, p_sent, g_sent in zip(src_sentences, pred_sentences, gold_sentences):
             f.write('src: ' + s_sent + '\n')
-            f.write('gold: ' + ' '.join(g_sent) + '\n')
-            f.write('pred: ' + ' '.join(p_sent) + '\n\n')
+            f.write('gold: ' + g_sent + '\n')
+            f.write('pred: ' + p_sent + '\n\n')
 
     print("hred_test_predictions.txt is saved.")
 

@@ -330,12 +330,15 @@ def main():
                 b_src = b_src.numpy()  # ~(bs, max_src_len)
                 b_tgt = b_tgt.numpy()  # ~(bs, max_tgt_len)
 
+                src_sequences = corpus.to_str(b_src)
+
+                tgt_sequences = corpus.to_str(b_tgt)
                 for i in range(bs):
-                    src_sequence = [corpus.dictionary.idx2word[x] for x in b_src[i, :]]
-                    tgt_sequence = [corpus.dictionary.idx2word[x] for x in b_tgt[i, :]]
+                    src_sequence = src_sequences[i]
+                    tgt_sequence = tgt_sequences[i]
                     # attentions ~(bs, max_src, max_tgt)
                     att_sequence = attentions[i].transpose(1, 0)  # ~(max_tgt_len, max_src_len)
-                    show_attention(src_sequence, tgt_sequence, att_sequence, name=str(n_batch)+':'+str(i))
+                    show_attention(src_sequence, tgt_sequence, att_sequence, name=str(n_batch) + ':' + str(i))
 
         valid_loss /= iters
         scheduler.step(valid_loss)
@@ -401,26 +404,20 @@ def main():
         b_tgt = b_tgt.numpy()              # ~(bs, max_tgt_len)
         predictions = predictions.numpy()  # ~(bs, max_len)
 
-        for i in range(bs):
-            # get tokens from the predicted indices
-            src_tokens = [corpus.dictionary.idx2word[x] for x in b_src[i]]
-            tgt_tokens = [corpus.dictionary.idx2word[x] for x in b_tgt[i]]
-            pred_tokens = [corpus.dictionary.idx2word[x] for x in predictions[i]]
+        # get tokens from the predicted indices
+        src_tokens = corpus.to_str(b_src, filter_pad=True)  # ~(bs, length)
+        tgt_tokens = corpus.to_str(b_tgt, filter_pad=True)  # ~(bs, length)
+        pred_tokens = corpus.to_str(predictions, filter_pad=True)  # ~(bs, length)
 
-            # filter out '<pad>'
-            src_tokens = filter(lambda x: x != corpus.pad_tag, src_tokens)
-            tgt_tokens = filter(lambda x: x != corpus.pad_tag, tgt_tokens)
-            pred_tokens = filter(lambda x: x != corpus.pad_tag, pred_tokens)
-
-            src_sentences.append(src_tokens)
-            tgt_sentences.append(tgt_tokens)
-            pred_sentences.append(pred_tokens)
+        src_sentences.extend(src_tokens)
+        tgt_sentences.extend(tgt_tokens)
+        pred_sentences.extend(pred_tokens)
 
     with open("seq2seq_test_predictions.txt", "w") as f:
         for s_sent, g_sent, p_sent in zip(src_sentences, tgt_sentences, pred_sentences):
-            f.write('src: ' + ' '.join(s_sent) + '\n')
-            f.write('gold: ' + ' '.join(g_sent) + '\n')
-            f.write('pred: ' + ' '.join(p_sent) + '\n\n')
+            f.write('src: ' + s_sent + '\n')
+            f.write('gold: ' + g_sent + '\n')
+            f.write('pred: ' + p_sent + '\n\n')
 
     print("seq2seq_test_predictions.txt is saved.")
 

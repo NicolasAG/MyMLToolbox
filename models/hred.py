@@ -1,9 +1,6 @@
 """
 # Implementation of HRED model in PyTorch
 # Paper : https://arxiv.org/abs/1507.04808
-# Tutorial: https://github.com/spro/practical-pytorch/blob/master/seq2seq-translation/seq2seq-translation-batched.ipynb
-#
-# python hred.py <training_data> <dictionary>
 """
 import random
 
