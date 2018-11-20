@@ -16,7 +16,6 @@ import matplotlib.ticker as ticker
 from nltk import sent_tokenize, word_tokenize
 
 from gensim.models import KeyedVectors
-import pyprind
 
 
 def str2bool(v):
@@ -88,39 +87,61 @@ def scaled_dot_prod_attention(query, key, value, mask=None, dropout=None):
     return torch.matmul(p_attn, value), p_attn
 
 
-def get_google_word2vec(path_word2vec):
+def load_google_word2vec(fname):
     """
     Loads the 3Mx300 matrix
     """
-    assert os.path.exists(path_word2vec)
-    return KeyedVectors.load_word2vec_format(path_word2vec, binary=True)
+    return KeyedVectors.load_word2vec_format(fname, binary=True)
 
 
-def set_word_embeddings(embedding_layer, device, word2vec, corpus, requires_grad=True):
+def load_glove_word2vec(fname):
+    """
+    Loads word vecs from gloVe
+    """
+    word_vecs = {}
+    with open(fname, "rb") as f:
+        for i, line in enumerate(f):
+            ll = line.split()
+            word = ll[0].lower().strip()
+            word_vecs[word] = np.array(ll[1:], dtype='float32')
+            if '__length__' not in word_vecs:
+                word_vecs['__length__'] = len(word_vecs[word])
+    return word_vecs
+
+
+def set_word_embeddings(embedding_layer, w2v, dictionary, requires_grad=True):
     """
     set embedding layer of an rnn to a specific word2vec dictionary
     :param embedding_layer: torch.nn.Embedding layer
-    :param device: torch device to put the parameters in (cuda or cpu)
-    :param word2vec: mapping from word to vectors
+    :param w2v: mapping from word to vectors
     :param corpus: Corpus object with Dictionary
     :param requires_grad: fine-tune the embeddings
     """
-    embeddings = np.random.uniform(-0.1, 0.1, size=(len(corpus.dictionary), word2vec.vector_size))
+
+    if embedding_layer.weight.requires_grad:
+        params = embedding_layer.weight.detach().cpu().numpy()
+    else:
+        params = embedding_layer.weight.cpu().numpy()
+
+    # embed = np.random.uniform(-0.1, 0.1, size=(len(dictionary), 300))
     count = 0
-    for tok_id in range(len(corpus.dictionary)):
+    for tok_id in range(len(dictionary)):
         try:
-            embeddings[tok_id] = word2vec[corpus.dictionary.idx2word[tok_id]]
+            # embed[tok_id] = w2v[dictionary.idx2word[tok_id]]
+            params[tok_id] = w2v[dictionary.idx2word[tok_id]]
             count += 1
         except KeyError:
             pass
 
     print("Got %d/%d = %.6f pretrained embeddings" % (
-        count, len(corpus.dictionary), float(count) / len(corpus.dictionary)
+        count, len(dictionary), float(count) / len(dictionary)
     ))
 
-    embeddings = torch.from_numpy(embeddings).float()  # convert numpy array to torch float tensor
-    embeddings = embeddings.to(device)
-    embedding_layer.weight = torch.nn.Parameter(embeddings, requires_grad=requires_grad)
+    params = torch.from_numpy(params).float()  # convert numpy array to torch float tensor
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    params = params.to(device)
+    embedding_layer.weight = torch.nn.Parameter(params, requires_grad=requires_grad)
+    # embedding_layer.weight.requires_grad = requires_grad
 
 
 def unicode_to_ascii(s):
@@ -178,12 +199,20 @@ class Dictionary(object):
     Used in Language modeling.
     see: https://github.com/yunjey/pytorch-tutorial/blob/master/tutorials/02-intermediate/language_model/data_utils.py
     """
-    def __init__(self):
+    def __init__(self, required=None):
         self.word2idx = {}
         self.idx2word = {}
         self.idx = 0
         self.word2cnt = {}
         self.trimmed = False  # flag for trimmed vocab
+
+        if required is None:
+            self.required = []
+        else:
+            self.required = required
+
+        for token in self.required:
+            self.add_word(token)
 
     def add_word(self, word):
         if word not in self.word2idx:
@@ -205,9 +234,14 @@ class Dictionary(object):
 
         keep_words = []
 
+        # add required tokens
+        for token in self.required:
+            keep_words.append({'w': token,
+                               'c': self.word2cnt[token]})
+
         for w, c in self.word2cnt.items():
-            if c >= min_count:
-                keep_words.append({'w': w, 'c': c, 'idx': self.word2idx[w]})
+            if c >= min_count and w not in self.required:
+                keep_words.append({'w': w, 'c': c})
 
         print("keeping %d words from %d = %.4f" % (
             len(keep_words), len(self.word2idx), len(keep_words) / len(self.word2idx)
@@ -219,9 +253,9 @@ class Dictionary(object):
         self.word2cnt = {}
         self.idx = 0
         for e in keep_words:
-            self.word2idx[e['w']] = e['idx']
+            self.word2idx[e['w']] = self.idx
             self.word2cnt[e['w']] = e['c']
-            self.idx2word[e['idx']] = e['w']
+            self.idx2word[self.idx] = e['w']
             self.idx += 1
 
     def __len__(self):
@@ -234,16 +268,14 @@ class Corpus(object):
     Used in Language modeling.
     """
     def __init__(self, pad_tag='<pad>', unk_tag='<unk>', sos_tag='<sos>', eos_tag='<eos>'):
-        self.dictionary = Dictionary()
+        self.dictionary = Dictionary(required=[pad_tag, unk_tag, sos_tag, eos_tag])
         self.pad_tag = pad_tag  # pad symbol
         self.unk_tag = unk_tag  # unknown word
         self.sos_tag = sos_tag  # start-of-sentence tag
         self.eos_tag = eos_tag  # end-of-sentence tag
-        self.dictionary.add_word(self.pad_tag)
-        self.dictionary.add_word(self.unk_tag)
-        self.dictionary.add_word(self.eos_tag)
 
-    def get_data_from_lines(self, path, max_context_size=-1, reverse_tgt=False, debug=False, max_n_lines=-1):
+    def get_data_from_lines(self, path, max_context_size=-1, reverse_tgt=False,
+                            debug=False, max_n_lines=-1, add_to_dict=True):
         """
         Reads an input file where each line is considered as one conversation with more than one sentence.
         :param path: path to a readable file
@@ -251,6 +283,7 @@ class Corpus(object):
         :param reverse_tgt: reverse tokens of the tgt sequence
         :param debug: print a few item examples
         :param max_n_lines: consider top lines
+        :param add_to_dict: add words to dictionary
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
         src = []  # list of contexts
@@ -305,13 +338,14 @@ class Corpus(object):
                     tgt_words = undo_word_tokenizer(tgt_words, self.eos_tag)
 
                     # add words to dictionary
-                    # always add words of the tgt sentences
-                    for word in tgt_words:
-                        self.dictionary.add_word(word)
-                    # only add words of the first sentence
-                    if s_id == 0:
-                        for word in src_words:
+                    if add_to_dict:
+                        # always add words of the tgt sentences
+                        for word in tgt_words:
                             self.dictionary.add_word(word)
+                        # only add words of the first src sentence
+                        if s_id == 0:
+                            for word in src_words:
+                                self.dictionary.add_word(word)
 
                     if reverse_tgt:
                         tgt_words = tgt_words[::-1]
@@ -356,7 +390,7 @@ class Corpus(object):
 
         strings = []
         for idx_sent in idx_sents:
-            str_sent = [self.dictionary.idx2word[x] for x in idx_sent]
+            str_sent = [self.dictionary.idx2word.get(x, self.unk_tag) for x in idx_sent]
 
             if filter_pad:
                 # filter out '<pad>'
