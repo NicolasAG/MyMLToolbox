@@ -883,6 +883,7 @@ def seq2seq_minibatch_generator(bs, src, tgt, corpus, shuffle=True):
     :param src: list of source sentences
     :param tgt: list of tgt sentences
     :param corpus: utils.Corpus object
+    :param shuffle: shuffle data indices
     """
     # transform string sentences into idx sentences
     src = corpus.to_idx(src)

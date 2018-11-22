@@ -163,6 +163,12 @@ def normalize_string(s):
 
 
 def undo_word_tokenizer(tokens, symbol):
+    """
+    Merge back tokens matching a given symbol
+    :param tokens: list of tokens
+    :param symbol: symbol that should not be tokenized
+    :return: new list of tokens
+    """
     symbols = word_tokenize(symbol)
     j = 0  # index going through symbols
 
@@ -274,20 +280,26 @@ class Corpus(object):
         self.sos_tag = sos_tag  # start-of-sentence tag
         self.eos_tag = eos_tag  # end-of-sentence tag
 
-    def get_data_from_lines(self, path, max_context_size=-1, reverse_tgt=False,
-                            debug=False, max_n_lines=-1, add_to_dict=True):
+    def get_data_from_lines(self, path, max_n_lines=-1, max_context_size=-1, max_seq_length=-1,
+                            reverse_tgt=False, debug=False, add_to_dict=True):
         """
         Reads an input file where each line is considered as one conversation with more than one sentence.
         :param path: path to a readable file
+        :param max_n_lines: consider top lines
         :param max_context_size: number of sentences to keep in the context
+        :param max_seq_length: max number of tokens in one sequence
         :param reverse_tgt: reverse tokens of the tgt sequence
         :param debug: print a few item examples
-        :param max_n_lines: consider top lines
         :param add_to_dict: add words to dictionary
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
         src = []  # list of contexts
         tgt = []  # list of next sentences
+
+        truncated_src = 0  # number of truncated source sequences
+        truncated_tgt = 0  # number of truncated target sequences
+        src_tokens_lost = 0  # number of tokens removed after truncation
+        tgt_tokens_lost = 0  # number of tokens removed after truncation
 
         f = open(path, 'r')
         num_lines = sum(1 for _ in f)
@@ -331,11 +343,19 @@ class Corpus(object):
                     src_words = undo_word_tokenizer(src_words, self.sos_tag)
                     src_words = undo_word_tokenizer(src_words, self.unk_tag)
                     src_words = undo_word_tokenizer(src_words, self.eos_tag)
+                    if 0 < max_seq_length < len(src_words):
+                        src_tokens_lost += len(src_words) - max_seq_length
+                        src_words = src_words[:max_seq_length-1] + [self.eos_tag]
+                        truncated_src += 1
 
                     tgt_words = [self.sos_tag] + word_tokenize(tgt_sent) + [self.eos_tag]
                     tgt_words = undo_word_tokenizer(tgt_words, self.sos_tag)
                     tgt_words = undo_word_tokenizer(tgt_words, self.unk_tag)
                     tgt_words = undo_word_tokenizer(tgt_words, self.eos_tag)
+                    if 0 < max_seq_length < len(tgt_words):
+                        tgt_tokens_lost += len(tgt_words) - max_seq_length
+                        tgt_words = tgt_words[:max_seq_length-1] + [self.eos_tag]
+                        truncated_tgt += 1
 
                     # add words to dictionary
                     if add_to_dict:
@@ -376,6 +396,15 @@ class Corpus(object):
                     print('src:', src_ex)
                     print('tgt:', tgt_ex)
                     print('')
+
+        if truncated_src > 0:
+            print("Truncated %d (%d) / %d = %4f source sentences" % (
+                truncated_src, src_tokens_lost, len(src), truncated_src / len(src)
+            ))
+        if truncated_tgt > 0:
+            print("Truncated %d (%d) / %d = %4f target sentences" % (
+                truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
+            ))
 
         return src, tgt
 
