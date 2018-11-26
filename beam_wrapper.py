@@ -140,12 +140,17 @@ class BSWrapper(object):
                     memory.append(beam_token)
                     continue
 
+                # get decoder inputs
                 dec_input = torch.LongTensor(beam_token.word_id).to(
                     torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-                )
+                ).contiguous()
                 dec_hid = beam_token.decoder_state
-                enc_ht = beam_token.encoder_ht
-                enc_out = beam_token.encoder_out
+                if self.decoder.rnn_type == 'lstm':
+                    dec_hid = (dec_hid[0].contiguous(), dec_hid[1].contiguous())
+                else:
+                    dec_hid = dec_hid.contiguous()
+                enc_ht = beam_token.encoder_ht.contiguous()
+                enc_out = beam_token.encoder_out.contiguous()
 
                 # evaluate next step
 
