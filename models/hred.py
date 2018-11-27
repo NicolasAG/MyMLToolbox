@@ -55,6 +55,8 @@ class HREDEncoder(nn.Module):
         else:
             raise NotImplementedError("unknown rnn type %s" % self.rnn_type)
 
+        self._init_weights()
+
     def forward(self, x, lengths, h_0=None):
         """
         :param x: input sequence of vectors ~(bs, max_src_len, size)
@@ -146,6 +148,14 @@ class HREDEncoder(nn.Module):
         # Unsort the tensor
         original = sorted_tensor.index_select(dim, pos_idx)
         return original
+
+    def _init_weights(self):
+        """
+        Initialise hidden-to-hidden weights to be orthogonal
+        """
+        for name, param in self.rnn.named_parameters():
+            if name.startswith('weight_hh'):
+                torch.nn.init.orthogonal_(param.data)
 
     def init_hidden(self, bs):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -321,6 +331,8 @@ class HREDDecoder(nn.Module):
         else:
             raise NotImplementedError("unknown rnn type %s" % self.rnn_type)
 
+        self._init_weights()
+
     def forward(self, x, h_tm1, context, enc_outs):
         """
         :param x: batch of input tokens - LongTensor ~(bs)
@@ -362,6 +374,14 @@ class HREDDecoder(nn.Module):
         out /= self.alpha  # divide by Boltzmann Temperature term before applying softmax
 
         return out, h_t, None
+
+    def _init_weights(self):
+        """
+        Initialise hidden-to-hidden weights to be orthogonal
+        """
+        for name, param in self.rnn.named_parameters():
+            if name.startswith('weight_hh'):
+                torch.nn.init.orthogonal_(param.data)
 
     def init_hidden(self, bs):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
