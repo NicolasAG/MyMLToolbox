@@ -345,7 +345,8 @@ class Corpus(object):
                     src_words = undo_word_tokenizer(src_words, self.eos_tag)
                     if 0 < max_seq_length < len(src_words):
                         src_tokens_lost += len(src_words) - max_seq_length
-                        src_words = src_words[:max_seq_length-1] + [self.eos_tag]
+                        # truncate source sentence at the beginning
+                        src_words = [self.sos_tag] + src_words[-(max_seq_length-1):]
                         truncated_src += 1
 
                     tgt_words = [self.sos_tag] + word_tokenize(tgt_sent) + [self.eos_tag]
@@ -354,7 +355,8 @@ class Corpus(object):
                     tgt_words = undo_word_tokenizer(tgt_words, self.eos_tag)
                     if 0 < max_seq_length < len(tgt_words):
                         tgt_tokens_lost += len(tgt_words) - max_seq_length
-                        tgt_words = tgt_words[:max_seq_length-1] + [self.eos_tag]
+                        # truncate target sentence at the tail
+                        tgt_words = tgt_words[:(max_seq_length-1)] + [self.eos_tag]
                         truncated_tgt += 1
 
                     # add words to dictionary
@@ -557,7 +559,7 @@ class AttentionModule(nn.Module):
         return attn_weights  # ~(bs, dec_seq=1, enc_seq)
 
 
-def set_gradient(model, value):
+def set_gradient(model, value: bool):
     """
     Make all parameters of the model trainable or not
     """
