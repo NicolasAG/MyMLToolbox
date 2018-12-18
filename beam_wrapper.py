@@ -165,7 +165,7 @@ class BSWrapper(object):
 
                 # reshape tensor (remove batch_size=1)
                 log_p = functional.log_softmax(dec_out, dim=1)
-                log_p = log_p.cpu().numpy()[0]  # ~(vocab)
+                log_p = log_p.cpu().detach().numpy()[0]  # ~(vocab)
 
                 # put into memory the k-best tokens of this sample (k=beam_size)
                 k_best_word_indices = np.argpartition(log_p, -self.beam_size)[-self.beam_size:]
