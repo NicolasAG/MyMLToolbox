@@ -540,6 +540,115 @@ class Corpus(object):
 
         return src, tgt
 
+    def get_copydata_from_array(self, json_path, max_n_lines=-1, max_seq_length=-1,
+                                debug=False, add_to_dict=True):
+        """
+        Reads an array where each item is considered as one story with sentences splitted by \n.
+        :param json_path: path to a json file
+        :param max_n_lines: consider top lines
+        :param max_seq_length: max number of tokens in one sequence
+        :param debug: print a few item examples
+        :param add_to_dict: add words to dictionary
+        :return: list of (src, tgt) pairs where src and tgt are the same sentence
+        """
+        src = []  # list of sentences
+        tgt = []  # list of sentences
+
+        truncated_src = 0  # number of truncated source sequences
+        truncated_tgt = 0  # number of truncated target sequences
+        src_tokens_lost = 0  # number of tokens removed after truncation
+        tgt_tokens_lost = 0  # number of tokens removed after truncation
+
+        # f = open(json_path, 'r')
+        # array = json.load(f)
+        # f.close()
+        array = json_path
+
+        print("%d items" % len(array))
+
+        item_done = 0
+        for item in array:
+
+            # skip empty items
+            if len(item.strip().split()) == 0:
+                continue
+
+            sentences = item.split('\n')  # list of sentences in this item
+
+            # for all sentences add words to dictionary & make a (src - tgt) pair
+            for s in sentences:
+
+                # lowercase, strip, to ascii
+                src_sent = normalize_string(
+                    self.sos_tag + ' ' + s + ' ' + self.eos_tag
+                )
+                tgt_sent = normalize_string(
+                    self.sos_tag + ' ' + s + ' ' + self.eos_tag
+                )
+
+                # list of words in the sentences
+                src_words = word_tokenize(src_sent)
+                src_words = undo_word_tokenizer(src_words, self.sos_tag)
+                src_words = undo_word_tokenizer(src_words, self.unk_tag)
+                src_words = undo_word_tokenizer(src_words, self.eos_tag)
+                if 0 < max_seq_length < len(src_words):
+                    src_tokens_lost += len(src_words) - max_seq_length
+                    # truncate source sentence at the beginning
+                    src_words = [self.sos_tag] + src_words[-(max_seq_length - 1):]
+                    truncated_src += 1
+
+                tgt_words = word_tokenize(tgt_sent)
+                tgt_words = undo_word_tokenizer(tgt_words, self.sos_tag)
+                tgt_words = undo_word_tokenizer(tgt_words, self.unk_tag)
+                tgt_words = undo_word_tokenizer(tgt_words, self.eos_tag)
+                if 0 < max_seq_length < len(tgt_words):
+                    tgt_tokens_lost += len(tgt_words) - max_seq_length
+                    # truncate target sentence at the tail
+                    tgt_words = tgt_words[:(max_seq_length - 1)] + [self.eos_tag]
+                    truncated_tgt += 1
+
+                # add words to dictionary
+                if add_to_dict:
+                    for word in src_words:
+                        self.dictionary.add_word(word)
+
+                src.append(' '.join(src_words))
+                tgt.append(' '.join(tgt_words))
+
+            item_done += 1
+            if item_done % 1000 == 0:
+                print("#", end='')
+
+            if 0 < max_n_lines <= item_done:
+                break
+
+        print("")
+
+        if debug:
+            # print a few random examples
+            start1 = 0
+            start2 = 50
+            for src_ex, tgt_ex in zip(src[start1: start1 + 3], tgt[start1: start1 + 3]):
+                print('src:', src_ex)
+                print('tgt:', tgt_ex)
+                print('')
+            if len(src) > start2 + 3:
+                for src_ex, tgt_ex in zip(src[start2: start2 + 3], tgt[start2: start2 + 3]):
+                    print('src:', src_ex)
+                    print('tgt:', tgt_ex)
+                    print('')
+
+        if truncated_src > 0:
+            print("Truncated %d (%d) / %d = %4f source sentences" % (
+                truncated_src, src_tokens_lost, len(src), truncated_src / len(src)
+            ))
+        if truncated_tgt > 0:
+            print("Truncated %d (%d) / %d = %4f target sentences" % (
+                truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
+            ))
+
+        return src, tgt
+
     def to_str(self, idx_sents, filter_pad=False):
         """
         Convert a batch of idx to strings
