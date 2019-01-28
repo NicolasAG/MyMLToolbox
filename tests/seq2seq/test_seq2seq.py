@@ -15,17 +15,18 @@ https://github.com/placaille/nmt-comp550/tree/master/src
 """
 import numpy as np
 import torch
+import torch.utils.data as data
 import random
 import pickle as pkl
 import os
 import time
 
 import sys
-sys.path.append('../..')
+sys.path.append('../../..')
 
-from utils import Dictionary, Corpus, set_gradient, masked_cross_entropy, show_attention
-from beam_wrapper import BSWrapper
-from models.hred import build_seq2seq, seq2seq_minibatch_generator, AttentionDecoder
+from MyMLToolbox.utils import Dictionary, Corpus, set_gradient, masked_cross_entropy, show_attention
+from MyMLToolbox.beam_wrapper import BSWrapper
+from MyMLToolbox.models.hred import build_seq2seq, AttentionDecoder, seq2seq_minibatch_generator
 
 
 def process_one_batch(encoder, decoder, batch, corpus, optimizer=None, beam_size=0):
@@ -39,6 +40,7 @@ def process_one_batch(encoder, decoder, batch, corpus, optimizer=None, beam_size
     :param beam_size: if specified, decode using beam search. no training.
     """
     b_src, b_tgt, len_src, len_tgt = batch
+
     # move to GPU
     b_src = b_src.to(device)  # ~(bs, max_src_len)
     b_tgt = b_tgt.to(device)  # ~(bs, max_tgt_len)
@@ -266,8 +268,8 @@ def main():
         epoch_start_time = time.time()
 
         # initialize batches
-        train_batches = seq2seq_minibatch_generator(
-            bs=batch_size, src=train_src, tgt=train_tgt, corpus=corpus, shuffle=True
+        train_batches, _ = seq2seq_minibatch_generator(
+            (train_src, train_tgt), corpus, batch_size, shuffle=True
         )
 
         # Turn on training mode which enables dropout
@@ -299,8 +301,8 @@ def main():
         train_loss = train_loss / iters
 
         # initialize batches
-        test_batches = seq2seq_minibatch_generator(
-            bs=batch_size, src=test_src, tgt=test_tgt, corpus=corpus, shuffle=False
+        test_batches, _ = seq2seq_minibatch_generator(
+            (test_src, test_tgt), corpus, batch_size, shuffle=False
         )
 
         # Turn on evaluation mode which disables dropout
@@ -374,8 +376,8 @@ def main():
         decoder.load_state_dict(torch.load(f))
 
     # initialize batches
-    test_batches = seq2seq_minibatch_generator(
-        bs=batch_size, src=test_src, tgt=test_tgt, corpus=corpus, shuffle=False
+    test_batches, _ = seq2seq_minibatch_generator(
+        (test_src, test_tgt), corpus, batch_size, shuffle=False
     )
 
     # Turn on evaluation mode which disables dropout

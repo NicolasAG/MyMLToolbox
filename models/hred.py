@@ -7,8 +7,9 @@ import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.data as data
 
-from utils import AttentionModule, split_list
+from MyMLToolbox.utils import AttentionModule, split_list
 
 
 class HREDEncoder(nn.Module):
@@ -896,6 +897,7 @@ def build_seq2seq(vocab_size, args=None):
     return encoder, decoder
 
 
+'''
 def seq2seq_minibatch_generator(bs, src, tgt, corpus, shuffle=True):
     """
     Generator used to feed mini-batches
@@ -945,5 +947,71 @@ def seq2seq_minibatch_generator(bs, src, tgt, corpus, shuffle=True):
         b_src = torch.LongTensor(b_src)  # ~(bs, max_src_len)
         b_tgt = torch.LongTensor(b_tgt)  # ~(bs, max_tgt_len)
         yield b_src, b_tgt, len_src, len_tgt
+'''
 
 
+class Seq2SeqData(data.Dataset):
+
+    def __init__(self, src, tgt, corpus):
+        self.src_str = src
+        self.tgt_str = tgt
+        self.corpus = corpus
+
+        # transform string sentences into idx sentences
+        self.src_idx = self.corpus.to_idx(self.src_str)
+        self.tgt_idx = self.corpus.to_idx(self.tgt_str)
+
+        self.ids = list(range(len(self.src_str)))
+
+    def __getitem__(self, index):
+        source = self.src_idx[index]
+        target = self.tgt_idx[index]
+
+        '''
+        return {
+            'input': source,
+            'input_str': self.src_str[index],
+            'output': target,
+            'output_str': self.tgt_str[index],
+            'n_tok_src': len(source),
+            'n_tok_tgt': len(target)
+        }
+        '''
+        return source, target, len(source), len(target)
+
+    def __len__(self):
+        return len(self.ids)
+
+
+def seq2seq_collate(dataset, corpus):
+    inputs, outputs, n_tok_srcs, n_tok_tgts = zip(*dataset)
+
+    max_src = max(n_tok_srcs)  # max length of source sentences
+    max_tgt = max(n_tok_tgts)  # max length of target sentences
+    # Fill in shorter sentences to make a tensor
+    b_src = [corpus.fill_seq(seq, max_src) for seq in inputs]
+    b_tgt = [corpus.fill_seq(seq, max_tgt) for seq in outputs]
+
+    b_src = torch.LongTensor(b_src)  # ~(bs, max_src_len)
+    b_tgt = torch.LongTensor(b_tgt)  # ~(bs, max_tgt_len)
+
+    return b_src, b_tgt, n_tok_srcs, n_tok_tgts
+
+
+def seq2seq_minibatch_generator(dataset, corpus, batch_size, shuffle=False, num_workers=0):
+    """
+    Return a Pytorch DataLoader and its corresponding Dataset for a standard seq2seq model.
+    :param dataset: tuple of (source, target) sequences
+    :param corpus: MyMLToolbox.utils.Corpus object
+    :param batch_size: number of examples per batch
+    :param shuffle: True or False
+    :param num_workers: default to 0
+    """
+    src, tgt = dataset
+    dataset = Seq2SeqData(src, tgt, corpus)
+    data_loader = data.DataLoader(dataset=dataset,
+                                  batch_size=batch_size,
+                                  shuffle=shuffle,
+                                  num_workers=num_workers,
+                                  collate_fn=lambda b: seq2seq_collate(b, corpus))
+    return data_loader, dataset

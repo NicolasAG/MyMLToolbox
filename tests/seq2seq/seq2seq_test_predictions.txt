@@ -1,28 +1,28 @@
-src: <sos> what are you doing ? <eos> <sos> i 'm listening to music . <eos> <sos> which one ? <eos>
-gold: <sos> avenged sevenfold . <eos>
-pred: <sos> avenged sevenfold . <eos>
-
-src: <sos> what are you doing ? <eos> <sos> i 'm listening to music . <eos>
-gold: <sos> which one ? <eos>
-pred: <sos> which one ? <eos>
-
-src: <sos> what are you doing ? <eos>
-gold: <sos> i 'm listening to music . <eos>
-pred: <sos> i 'm listening to music . <eos>
-
-src: <sos> what do you do ? <eos> <sos> nothing much . <eos>
-gold: <sos> are you serious ? <eos>
-pred: <sos> are you serious ? <eos>
-
-src: <sos> what do you do ? <eos>
-gold: <sos> nothing much . <eos>
-pred: <sos> nothing much . <eos>
+src: <sos> how are you ? <eos>
+gold: <sos> fine thanks , and you ? <eos>
+pred: <sos> fine thanks , and you ? <eos>
 
 src: <sos> how are you ? <eos> <sos> fine thanks , and you ? <eos>
 gold: <sos> good thank you . <eos>
 pred: <sos> good thank you . <eos>
 
-src: <sos> how are you ? <eos>
-gold: <sos> fine thanks , and you ? <eos>
-pred: <sos> fine thanks , and you ? <eos>
+src: <sos> what do you do ? <eos>
+gold: <sos> nothing much . <eos>
+pred: <sos> nothing much . <eos>
+
+src: <sos> what do you do ? <eos> <sos> nothing much . <eos>
+gold: <sos> are you serious ? <eos>
+pred: <sos> are you serious ? <eos>
+
+src: <sos> what are you doing ? <eos>
+gold: <sos> i 'm listening to music . <eos>
+pred: <sos> i 'm listening to music . <eos>
+
+src: <sos> what are you doing ? <eos> <sos> i 'm listening to music . <eos>
+gold: <sos> which one ? <eos>
+pred: <sos> avenged sevenfold . <eos>
+
+src: <sos> what are you doing ? <eos> <sos> i 'm listening to music . <eos> <sos> which one ? <eos>
+gold: <sos> avenged sevenfold . <eos>
+pred: <sos> avenged sevenfold . <eos>
 

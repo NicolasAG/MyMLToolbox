@@ -673,8 +673,6 @@ class Corpus(object):
             strings.append(str_sent)
         return strings
 
-
-
     def to_idx(self, str_sents):
         """
         Convert a batch of strings to idx
