@@ -525,6 +525,11 @@ default_params = {
 }
 
 
+##############################
+# --------- HRED ----------- #
+##############################
+
+
 def build_hred(vocab_size, args=None):
 
     # Get context RNN input size
@@ -688,6 +693,7 @@ def build_hred(vocab_size, args=None):
     return sent_encoder, context_encoder, decoder
 
 
+'''
 def hred_minibatch_generator(bs, src, tgt, corpus, shuffle=True):
     """
     Generator used to feed mini-batches
@@ -749,6 +755,83 @@ def hred_minibatch_generator(bs, src, tgt, corpus, shuffle=True):
         b_src_pp = torch.LongTensor(b_src_pp)  # ~(bs++, seq_len)
         b_tgt = torch.LongTensor(b_tgt)        # ~(bs, seq_len)
         yield b_src_pp, b_tgt, len_src_pp, len_src, len_tgt
+'''
+
+
+class HREDData(data.Dataset):
+
+    def __init__(self, src, tgt, corpus):
+        self.src_str = src
+        self.tgt_str = tgt
+        self.corpus = corpus
+
+        # transform string sentences into idx sentences
+        self.src_idx = self.corpus.to_idx(self.src_str)
+        self.tgt_idx = self.corpus.to_idx(self.tgt_str)
+
+        self.ids = list(range(len(self.src_str)))
+
+    def __getitem__(self, index):
+        source = self.src_idx[index]
+        target = self.tgt_idx[index]
+
+        # split sentences around each " <eos>"
+        sentences = split_list(source, [self.corpus.dictionary.word2idx[self.corpus.eos_tag]])
+        # add <eos> back to all sentences except empty ones
+        sentences = [s + [self.corpus.dictionary.word2idx[self.corpus.eos_tag]] for s in sentences if len(s) > 0]
+
+        sentence_lengths = [len(s) for s in sentences]  # number of tokens per source sentence
+        nof_sentences = len(sentences)                  # number of source sentences
+        target_length = len(target)                     # number of tokens in target sentence
+
+        return sentences, sentence_lengths, nof_sentences, target, target_length
+
+    def __len__(self):
+        return len(self.ids)
+
+
+def hred_collate(dataset, corpus):
+    b_sentences, b_sentence_lengths, b_nof_sentences, b_target, b_target_length = zip(*dataset)
+
+    # flatten the batch of list of sentences into one batch of sentences
+    b_sentences = [sentence   for sublist in b_sentences   for sentence in sublist]
+    # same thing with the lengths: flatten the batch of list of lengths into one batch of lengths
+    b_sentence_lengths = [length   for sublist in b_sentence_lengths   for length in sublist]
+
+    max_sentence_len = max(b_sentence_lengths)  # max length of source sentences
+    max_target_len = max(b_target_length)       # max length of target sentences
+    # Fill in shorter sentences to make a tensor
+    b_src_pp = [corpus.fill_seq(seq, max_sentence_len) for seq in b_sentences]
+    b_tgt = [corpus.fill_seq(seq, max_target_len) for seq in b_target]
+
+    b_src_pp = torch.LongTensor(b_src_pp)  # ~(bs++, seq_len)
+    b_tgt = torch.LongTensor(b_tgt)        # ~(bs, seq_len)
+
+    return b_src_pp, b_tgt, b_sentence_lengths, b_nof_sentences, b_target_length
+
+
+def hred_minibatch_generator(dataset, corpus, batch_size, shuffle=False, num_workers=0):
+    """
+    Return a Pytorch DataLoader and its corresponding Dataset for an HRED model.
+    :param dataset: tuple of (source, target) sequences
+    :param corpus: MyMLToolbox.utils.Corpus object
+    :param batch_size: number of examples per batch
+    :param shuffle: True or False
+    :param num_workers: default to 0
+    """
+    src, tgt = dataset
+    dataset = HREDData(src, tgt, corpus)
+    data_loader = data.DataLoader(dataset=dataset,
+                                  batch_size=batch_size,
+                                  shuffle=shuffle,
+                                  num_workers=num_workers,
+                                  collate_fn=lambda batch: hred_collate(batch, corpus))
+    return data_loader, dataset
+
+
+##############################
+# ------- SEQ-TO-SEQ ------- #
+##############################
 
 
 def build_seq2seq(vocab_size, args=None):
@@ -966,17 +1049,6 @@ class Seq2SeqData(data.Dataset):
     def __getitem__(self, index):
         source = self.src_idx[index]
         target = self.tgt_idx[index]
-
-        '''
-        return {
-            'input': source,
-            'input_str': self.src_str[index],
-            'output': target,
-            'output_str': self.tgt_str[index],
-            'n_tok_src': len(source),
-            'n_tok_tgt': len(target)
-        }
-        '''
         return source, target, len(source), len(target)
 
     def __len__(self):
@@ -1013,5 +1085,5 @@ def seq2seq_minibatch_generator(dataset, corpus, batch_size, shuffle=False, num_
                                   batch_size=batch_size,
                                   shuffle=shuffle,
                                   num_workers=num_workers,
-                                  collate_fn=lambda b: seq2seq_collate(b, corpus))
+                                  collate_fn=lambda batch: seq2seq_collate(batch, corpus))
     return data_loader, dataset

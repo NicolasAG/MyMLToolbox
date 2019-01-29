@@ -21,11 +21,11 @@ import os
 import time
 
 import sys
-sys.path.append('../..')
+sys.path.append('../../..')
 
-from utils import Dictionary, Corpus, set_gradient, masked_cross_entropy, show_attention
-from beam_wrapper import BSWrapper
-from models.hred import build_hred, hred_minibatch_generator, AttentionDecoder
+from MyMLToolbox.utils import Dictionary, Corpus, set_gradient, masked_cross_entropy, show_attention
+from MyMLToolbox.beam_wrapper import BSWrapper
+from MyMLToolbox.models.hred import build_hred, hred_minibatch_generator, AttentionDecoder
 
 
 def process_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None, beam_size=0):
@@ -302,8 +302,8 @@ def main():
         epoch_start_time = time.time()
 
         # initialize batches
-        train_batches = hred_minibatch_generator(
-            bs=batch_size, src=train_src, tgt=train_tgt, corpus=corpus, shuffle=True
+        train_batches, _ = hred_minibatch_generator(
+            (train_src, train_tgt), corpus, batch_size, shuffle=True
         )
 
         # Turn on training mode which enables dropout
@@ -340,8 +340,8 @@ def main():
         train_loss = train_loss / iters
 
         # initialize batches
-        test_batches = hred_minibatch_generator(
-            bs=batch_size, src=test_src, tgt=test_tgt, corpus=corpus, shuffle=False
+        test_batches, _ = hred_minibatch_generator(
+            (test_src, test_tgt), corpus, batch_size, shuffle=False
         )
 
         # Turn on evaluation mode which disables dropout
@@ -429,8 +429,8 @@ def main():
         decoder.load_state_dict(torch.load(f))
 
     # initialize batches
-    test_batches = hred_minibatch_generator(
-        bs=batch_size, src=test_src, tgt=test_tgt, corpus=corpus, shuffle=False
+    test_batches, _ = hred_minibatch_generator(
+        (test_src, test_tgt), corpus, batch_size, shuffle=False
     )
 
     # Turn on evaluation mode which disables dropout
