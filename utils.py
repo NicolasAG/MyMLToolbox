@@ -9,6 +9,7 @@ import sys
 import copy
 import math
 import json
+import codecs
 import unicodedata
 
 import matplotlib.pyplot as plt
@@ -17,6 +18,9 @@ import matplotlib.ticker as ticker
 from nltk import sent_tokenize, word_tokenize
 
 from gensim.models import KeyedVectors
+
+from MyMLToolbox.external.subword_nmt.learn_bpe import learn_bpe
+from MyMLToolbox.external.subword_nmt.apply_bpe import BPE
 
 
 def str2bool(v):
@@ -280,6 +284,26 @@ class Corpus(object):
         self.unk_tag = unk_tag  # unknown word
         self.sos_tag = sos_tag  # start-of-sentence tag
         self.eos_tag = eos_tag  # end-of-sentence tag
+        self.bpe = None  # path to the BPE object -- see MyMLToolbox/external/subword-nmt/apply_bpe.BPE()
+
+    def learn_bpe(self, input_file, output_prefix, target_size):
+        """
+        Just a util function that calls MyMLToolbox/external/subword-nmt/learn_bpe.learn_bpe()
+        :param input_file: txt file to read and learn bpe
+        :param output_prefix: path to the code file
+        :param target_size: target vocabulary size
+        """
+        print("Learning BPE codes...")
+        fin = codecs.open(input_file, mode='r', encoding='utf-8')
+        fout = codecs.open(output_prefix + '.codes', mode='w', encoding='utf-8')
+        learn_bpe(fin, fout, target_size)
+        fin.close()
+        fout.close()
+
+        print("Building BPE object...")
+        codes = codecs.open(output_prefix + '.codes', mode='r', encoding='utf-8')
+        self.bpe = BPE(codes)
+        codes.close()
 
     def get_data_from_lines(self, path, max_n_lines=-1, max_context_size=-1, max_seq_length=-1,
                             reverse_tgt=False, debug=False, add_to_dict=True):
@@ -301,6 +325,19 @@ class Corpus(object):
         truncated_tgt = 0  # number of truncated target sequences
         src_tokens_lost = 0  # number of tokens removed after truncation
         tgt_tokens_lost = 0  # number of tokens removed after truncation
+
+        ###############
+        # Process BPE #
+        ###############
+        if self.bpe is not None:
+            fin = codecs.open(path, mode='r', encoding='utf-8')
+            fout = codecs.open(path + '.BPE', mode='w', encoding='utf-8')
+            for line in fin:
+                fout.write(self.bpe.process_line(line))
+            fin.close()
+            fout.close()
+            # set path to the newly created BPE file
+            path = path + '.BPE'
 
         f = open(path, 'r')
         num_lines = sum(1 for _ in f)
@@ -432,6 +469,22 @@ class Corpus(object):
         src_tokens_lost = 0  # number of tokens removed after truncation
         tgt_tokens_lost = 0  # number of tokens removed after truncation
 
+        ###############
+        # Process BPE #
+        ###############
+        ''' TODO '''
+        '''
+        if self.bpe is not None:
+            fin = codecs.open(path, mode='r', encoding='utf-8')
+            fout = codecs.open(path + '.BPE', mode='w', encoding='utf-8')
+            for line in fin:
+                fout.write(self.bpe.process_line(line))
+            fin.close()
+            fout.close()
+            # set path to the newly created BPE file
+            path = path + '.BPE'
+        '''
+
         f = open(json_path, 'r')
         array = json.load(f)
         f.close()
@@ -558,6 +611,22 @@ class Corpus(object):
         truncated_tgt = 0  # number of truncated target sequences
         src_tokens_lost = 0  # number of tokens removed after truncation
         tgt_tokens_lost = 0  # number of tokens removed after truncation
+
+        ###############
+        # Process BPE #
+        ###############
+        ''' TODO '''
+        '''
+        if self.bpe is not None:
+            fin = codecs.open(path, mode='r', encoding='utf-8')
+            fout = codecs.open(path + '.BPE', mode='w', encoding='utf-8')
+            for line in fin:
+                fout.write(self.bpe.process_line(line))
+            fin.close()
+            fout.close()
+            # set path to the newly created BPE file
+            path = path + '.BPE'
+        '''
 
         # f = open(json_path, 'r')
         # array = json.load(f)

@@ -186,6 +186,7 @@ def main():
     ##########################################################################
     print("\nLoading data...")
     corpus = Corpus()
+    corpus.learn_bpe('../train_data.txt', '../bpe10', 10)
     train_src, train_tgt = corpus.get_data_from_lines('../train_data.txt')
     test_src, test_tgt = corpus.get_data_from_lines('../test_data.txt')
     # make sure source and target have the same number of examples
