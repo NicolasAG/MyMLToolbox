@@ -1,28 +1,28 @@
-src: <sos> how are you ? <eos>  
-gold: <sos> fine thanks , and you ? <eos>
-pred: <sos> i 'm listening to music . <eos>
+src: <sos> h@@ o@@ w are you ? <eos>  
+gold: <sos> f@@ in@@ e t@@ ha@@ n@@ k@@ s@@ , a@@ n@@ d you ? <eos>
+pred: <sos> f@@ in@@ e t@@ ha@@ n@@ k@@ s@@ , a@@ n@@ d you ? <eos>
 
-src: <sos> how are you ? <eos> <sos> fine thanks , and you ? <eos> 
-gold: <sos> good thank you . <eos>
-pred: <sos> good thank you . <eos>
+src: <sos> h@@ o@@ w are you ? <eos> <sos> f@@ in@@ e t@@ ha@@ n@@ k@@ s@@ , a@@ n@@ d you ? <eos> 
+gold: <sos> g@@ o@@ o@@ d t@@ ha@@ n@@ k you@@ . <eos>
+pred: <sos> g@@ o@@ o@@ d t@@ ha@@ n@@ k you@@ . <eos>
 
-src: <sos> what do you do ? <eos>  
-gold: <sos> nothing much . <eos>
-pred: <sos> i 'm listening to music . <eos>
+src: <sos> w@@ ha@@ t d@@ o you d@@ o@@ ? <eos>  
+gold: <sos> n@@ o@@ t@@ h@@ in@@ g m@@ u@@ c@@ h@@ . <eos>
+pred: <sos> n@@ o@@ t@@ h@@ in@@ g m@@ u@@ c@@ h@@ . <eos>
 
-src: <sos> what do you do ? <eos> <sos> nothing much . <eos> 
-gold: <sos> are you serious ? <eos>
-pred: <sos> are you serious ? <eos>
+src: <sos> w@@ ha@@ t d@@ o you d@@ o@@ ? <eos> <sos> n@@ o@@ t@@ h@@ in@@ g m@@ u@@ c@@ h@@ . <eos> 
+gold: <sos> are you s@@ e@@ r@@ i@@ o@@ u@@ s@@ ? <eos>
+pred: <sos> are you s@@ e@@ r@@ i@@ o@@ u@@ s@@ ? <eos>
 
-src: <sos> what are you doing ? <eos>  
-gold: <sos> i 'm listening to music . <eos>
-pred: <sos> i 'm listening to music . <eos>
+src: <sos> w@@ ha@@ t are you d@@ o@@ in@@ g@@ ? <eos>  
+gold: <sos> i@@ '@@ m l@@ i@@ s@@ t@@ en@@ in@@ g t@@ o m@@ u@@ s@@ i@@ c@@ . <eos>
+pred: <sos> i@@ '@@ m l@@ i@@ s@@ t@@ en@@ in@@ g t@@ o m@@ u@@ s@@ i@@ c@@ . <eos>
 
-src: <sos> what are you doing ? <eos> <sos> i 'm listening to music . <eos> 
-gold: <sos> which one ? <eos>
-pred: <sos> which one ? <eos>
+src: <sos> w@@ ha@@ t are you d@@ o@@ in@@ g@@ ? <eos> <sos> i@@ '@@ m l@@ i@@ s@@ t@@ en@@ in@@ g t@@ o m@@ u@@ s@@ i@@ c@@ . <eos> 
+gold: <sos> w@@ h@@ i@@ c@@ h o@@ n@@ e@@ ? <eos>
+pred: <sos> w@@ h@@ i@@ c@@ h o@@ n@@ e@@ ? <eos>
 
-src: <sos> what are you doing ? <eos> <sos> i 'm listening to music . <eos> <sos> which one ? <eos>
-gold: <sos> avenged sevenfold . <eos>
-pred: <sos> avenged sevenfold . <eos>
+src: <sos> w@@ ha@@ t are you d@@ o@@ in@@ g@@ ? <eos> <sos> i@@ '@@ m l@@ i@@ s@@ t@@ en@@ in@@ g t@@ o m@@ u@@ s@@ i@@ c@@ . <eos> <sos> w@@ h@@ i@@ c@@ h o@@ n@@ e@@ ? <eos>
+gold: <sos> a@@ ven@@ g@@ e@@ d s@@ e@@ ven@@ f@@ o@@ l@@ d@@ . <eos>
+pred: <sos> a@@ ven@@ g@@ e@@ d s@@ e@@ ven@@ f@@ o@@ l@@ d@@ . <eos>
 

@@ -169,7 +169,7 @@ def normalize_string(s):
 
 def undo_word_tokenizer(tokens, symbol):
     """
-    Merge back tokens matching a given symbol
+    Merge back tokens matching a given symbol after calling nltk.word_tokenize
     :param tokens: list of tokens
     :param symbol: symbol that should not be tokenized
     :return: new list of tokens
@@ -200,6 +200,51 @@ def undo_word_tokenizer(tokens, symbol):
             new_words.append(t)  # save this token
             tmp_w = ''           # reset tmp_word
             j = 0                # reset pointer of symbols
+
+    return new_words
+
+
+def put_back_bpe_separator(tokens, seprator):
+    """
+    Merge back tokens matching the bpe separator after calling nltk.word_tokenize
+    :param tokens: list of tokens
+    :param seprator: bpe separator like '@@'
+    :return: new list of tokens
+    """
+    symbols = word_tokenize(seprator)
+
+    start = 0
+    j = 0  # index going through symbols
+
+    new_words = []  # list of new tokens to be returned
+    tmp_w = ''  # tmp string to store tokens we try to match
+
+    for i, tok in enumerate(tokens):
+        # match, save token & move pointer to the right
+        if tok == symbols[j]:
+            if len(tmp_w) == 0:
+                # this is the first time we match, save the position of the previous token
+                start = i-1
+
+            tmp_w += tok + ' '  # save this token in the tmp_word
+            j += 1  # move pointer of symbols to the right
+
+            # find a complete match! add token & reset
+            if j >= len(symbols):
+                tmp_w = tokens[start] + ' ' + tmp_w  # put the first token in front
+                new_words = new_words[:-1]  # ignore the previous token as we include it in tmp_w
+                new_words.append(tmp_w.replace(' ', ''))
+                tmp_w = ''  # reset tmp_word
+                j = 0  # reset pointer of symbols
+
+        # no match, reset
+        else:
+            if len(tmp_w) > 0:
+                # save the previous tokens we tried to match
+                new_words.extend(word_tokenize(tmp_w))
+            new_words.append(tok)  # save this token
+            tmp_w = ''  # reset tmp_word
+            j = 0  # reset pointer of symbols
 
     return new_words
 
@@ -356,8 +401,8 @@ class Corpus(object):
                     continue
 
                 sentences = sent_tokenize(line)  # list of sentences in this line
-                start = 0  # index of the first sentences to keep in the `src`
 
+                start = 0  # index of the first sentences to keep in the `src`
                 # for all sentences except the last one,
                 # add words to dictionary & make a (src - tgt) pair
                 for s_id in range(len(sentences) - 1):
@@ -376,21 +421,30 @@ class Corpus(object):
                     )
                     tgt_sent = normalize_string(sentences[s_id+1])
 
-                    # list of words in the sentences
+                    # list of words in the source sentences
                     src_words = [self.sos_tag] + word_tokenize(src_sents) + [self.eos_tag]
                     src_words = undo_word_tokenizer(src_words, self.sos_tag)
                     src_words = undo_word_tokenizer(src_words, self.unk_tag)
                     src_words = undo_word_tokenizer(src_words, self.eos_tag)
+                    if self.bpe is not None:
+                        src_words = put_back_bpe_separator(src_words, self.bpe.separator)
+
+                    # truncate if too long
                     if 0 < max_seq_length < len(src_words):
                         src_tokens_lost += len(src_words) - max_seq_length
                         # truncate source sentence at the beginning
                         src_words = [self.sos_tag] + src_words[-(max_seq_length-1):]
                         truncated_src += 1
 
+                    # list of words in the target sentence
                     tgt_words = [self.sos_tag] + word_tokenize(tgt_sent) + [self.eos_tag]
                     tgt_words = undo_word_tokenizer(tgt_words, self.sos_tag)
                     tgt_words = undo_word_tokenizer(tgt_words, self.unk_tag)
                     tgt_words = undo_word_tokenizer(tgt_words, self.eos_tag)
+                    if self.bpe is not None:
+                        tgt_words = put_back_bpe_separator(tgt_words, self.bpe.separator)
+
+                    # truncate if too long
                     if 0 < max_seq_length < len(tgt_words):
                         tgt_tokens_lost += len(tgt_words) - max_seq_length
                         # truncate target sentence at the tail
@@ -521,21 +575,30 @@ class Corpus(object):
                 )
                 tgt_sent = normalize_string(sentences[s_id+1])
 
-                # list of words in the sentences
+                # list of words in the source sentences
                 src_words = [self.sos_tag] + word_tokenize(src_sents) + [self.eos_tag]
                 src_words = undo_word_tokenizer(src_words, self.sos_tag)
                 src_words = undo_word_tokenizer(src_words, self.unk_tag)
                 src_words = undo_word_tokenizer(src_words, self.eos_tag)
+                if self.bpe is not None:
+                    src_words = put_back_bpe_separator(src_words, self.bpe.separator)
+
+                # truncate if too long
                 if 0 < max_seq_length < len(src_words):
                     src_tokens_lost += len(src_words) - max_seq_length
                     # truncate source sentence at the beginning
                     src_words = [self.sos_tag] + src_words[-(max_seq_length-1):]
                     truncated_src += 1
 
+                # list of words in the target sentences
                 tgt_words = [self.sos_tag] + word_tokenize(tgt_sent) + [self.eos_tag]
                 tgt_words = undo_word_tokenizer(tgt_words, self.sos_tag)
                 tgt_words = undo_word_tokenizer(tgt_words, self.unk_tag)
                 tgt_words = undo_word_tokenizer(tgt_words, self.eos_tag)
+                if self.bpe is not None:
+                    tgt_words = put_back_bpe_separator(tgt_words, self.bpe.separator)
+
+                # truncate if too long
                 if 0 < max_seq_length < len(tgt_words):
                     tgt_tokens_lost += len(tgt_words) - max_seq_length
                     # truncate target sentence at the tail
@@ -655,21 +718,30 @@ class Corpus(object):
                     self.sos_tag + ' ' + s + ' ' + self.eos_tag
                 )
 
-                # list of words in the sentences
+                # list of words in the source sentences
                 src_words = word_tokenize(src_sent)
                 src_words = undo_word_tokenizer(src_words, self.sos_tag)
                 src_words = undo_word_tokenizer(src_words, self.unk_tag)
                 src_words = undo_word_tokenizer(src_words, self.eos_tag)
+                if self.bpe is not None:
+                    src_words = put_back_bpe_separator(src_words, self.bpe.separator)
+
+                # truncate if too long
                 if 0 < max_seq_length < len(src_words):
                     src_tokens_lost += len(src_words) - max_seq_length
                     # truncate source sentence at the beginning
                     src_words = [self.sos_tag] + src_words[-(max_seq_length - 1):]
                     truncated_src += 1
 
+                # list of words in the target sentence
                 tgt_words = word_tokenize(tgt_sent)
                 tgt_words = undo_word_tokenizer(tgt_words, self.sos_tag)
                 tgt_words = undo_word_tokenizer(tgt_words, self.unk_tag)
                 tgt_words = undo_word_tokenizer(tgt_words, self.eos_tag)
+                if self.bpe is not None:
+                    tgt_words = put_back_bpe_separator(tgt_words, self.bpe.separator)
+
+                # truncate if too long
                 if 0 < max_seq_length < len(tgt_words):
                     tgt_tokens_lost += len(tgt_words) - max_seq_length
                     # truncate target sentence at the tail
