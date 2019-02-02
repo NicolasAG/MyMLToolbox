@@ -21,6 +21,7 @@ https://repo.continuum.io/pkgs/main/linux-64/pcre-8.42-h439df22_0.tar.bz2
 https://repo.continuum.io/pkgs/main/linux-64/xz-5.2.4-h14c3975_4.tar.bz2
 https://repo.continuum.io/pkgs/main/linux-64/zlib-1.2.11-ha838bed_2.tar.bz2
 https://repo.continuum.io/pkgs/main/linux-64/glib-2.56.2-hd408876_0.tar.bz2
+https://conda.anaconda.org/anaconda/linux-64/hdf5-1.10.4-hb1b8bf9_0.tar.bz2
 https://repo.continuum.io/pkgs/main/linux-64/libedit-3.1.20170329-h6b74fdf_2.tar.bz2
 https://repo.continuum.io/pkgs/main/linux-64/libpng-1.6.35-hbc83047_0.tar.bz2
 https://repo.continuum.io/pkgs/main/linux-64/libtiff-4.0.9-he85c1e1_2.tar.bz2
@@ -82,6 +83,7 @@ https://repo.continuum.io/pkgs/main/linux-64/requests-2.19.1-py37_0.tar.bz2
 https://conda.anaconda.org/anaconda/linux-64/s3transfer-0.1.13-py37_0.tar.bz2
 https://conda.anaconda.org/anaconda/noarch/boto3-1.9.82-py_0.tar.bz2
 https://conda.anaconda.org/anaconda/linux-64/smart_open-1.8.0-py37_0.tar.bz2
+https://conda.anaconda.org/anaconda/linux-64/h5py-2.9.0-py37h7918eee_0.tar.bz2
 https://repo.continuum.io/pkgs/main/linux-64/matplotlib-3.0.0-py37h5429711_0.tar.bz2
 https://conda.anaconda.org/anaconda/linux-64/mkl_fft-1.0.6-py37h7dd41cf_0.tar.bz2
 https://conda.anaconda.org/anaconda/linux-64/mkl_random-1.0.1-py37h4414c95_1.tar.bz2
@@ -92,6 +94,7 @@ https://conda.anaconda.org/pytorch/linux-64/pytorch-0.4.1-py37_py36_py35_py27__9
 https://conda.anaconda.org/anaconda/linux-64/scipy-1.1.0-py37hfa4b5c9_1.tar.bz2
 https://conda.anaconda.org/anaconda/linux-64/gensim-3.4.0-py37h14c3975_0.tar.bz2
 https://repo.continuum.io/pkgs/main/linux-64/patsy-0.5.0-py37_0.tar.bz2
+https://conda.anaconda.org/anaconda/linux-64/scikit-learn-0.20.1-py37h4989274_0.tar.bz2
 https://repo.continuum.io/pkgs/main/linux-64/thinc-6.12.0-py37h4989274_0.tar.bz2
 https://conda.anaconda.org/pytorch/linux-64/torchvision-0.2.1-py37_1.tar.bz2
 https://repo.continuum.io/pkgs/main/linux-64/spacy-2.0.16-py37h962f231_0.tar.bz2
