@@ -371,19 +371,6 @@ class Corpus(object):
         src_tokens_lost = 0  # number of tokens removed after truncation
         tgt_tokens_lost = 0  # number of tokens removed after truncation
 
-        ###############
-        # Process BPE #
-        ###############
-        if self.bpe is not None:
-            fin = codecs.open(path, mode='r', encoding='utf-8')
-            fout = codecs.open(path + '.BPE', mode='w', encoding='utf-8')
-            for line in fin:
-                fout.write(self.bpe.process_line(line))
-            fin.close()
-            fout.close()
-            # set path to the newly created BPE file
-            path = path + '.BPE'
-
         f = open(path, 'r')
         num_lines = sum(1 for _ in f)
         print("%d lines" % num_lines)
@@ -399,6 +386,10 @@ class Corpus(object):
                 # skip empty lines
                 if len(line.strip().split()) == 0:
                     continue
+
+                # Process BPE this line
+                if self.bpe is not None:
+                    line = self.bpe.process_line(line)
 
                 sentences = sent_tokenize(line)  # list of sentences in this line
 
@@ -523,22 +514,6 @@ class Corpus(object):
         src_tokens_lost = 0  # number of tokens removed after truncation
         tgt_tokens_lost = 0  # number of tokens removed after truncation
 
-        ###############
-        # Process BPE #
-        ###############
-        ''' TODO '''
-        '''
-        if self.bpe is not None:
-            fin = codecs.open(path, mode='r', encoding='utf-8')
-            fout = codecs.open(path + '.BPE', mode='w', encoding='utf-8')
-            for line in fin:
-                fout.write(self.bpe.process_line(line))
-            fin.close()
-            fout.close()
-            # set path to the newly created BPE file
-            path = path + '.BPE'
-        '''
-
         f = open(json_path, 'r')
         array = json.load(f)
         f.close()
@@ -554,9 +529,13 @@ class Corpus(object):
             if len(item.strip().split()) == 0:
                 continue
 
-            sentences = item.split('\n')  # list of sentences in this item
-            start = 0  # index of the first sentences to keep in the `src`
+            # Process BPE this item
+            if self.bpe is not None:
+                item = self.bpe.process_line(item)
 
+            sentences = item.split('\n')  # list of sentences in this item
+
+            start = 0  # index of the first sentences to keep in the `src`
             # for all sentences except the last one,
             # add words to dictionary & make a (src - tgt) pair
             for s_id in range(len(sentences) - 1):
@@ -675,22 +654,6 @@ class Corpus(object):
         src_tokens_lost = 0  # number of tokens removed after truncation
         tgt_tokens_lost = 0  # number of tokens removed after truncation
 
-        ###############
-        # Process BPE #
-        ###############
-        ''' TODO '''
-        '''
-        if self.bpe is not None:
-            fin = codecs.open(path, mode='r', encoding='utf-8')
-            fout = codecs.open(path + '.BPE', mode='w', encoding='utf-8')
-            for line in fin:
-                fout.write(self.bpe.process_line(line))
-            fin.close()
-            fout.close()
-            # set path to the newly created BPE file
-            path = path + '.BPE'
-        '''
-
         # f = open(json_path, 'r')
         # array = json.load(f)
         # f.close()
@@ -704,6 +667,10 @@ class Corpus(object):
             # skip empty items
             if len(item.strip().split()) == 0:
                 continue
+
+            # Process BPE this item
+            if self.bpe is not None:
+                item = self.bpe.process_line(item)
 
             sentences = item.split('\n')  # list of sentences in this item
 
