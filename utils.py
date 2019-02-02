@@ -338,12 +338,14 @@ class Corpus(object):
         :param output_prefix: path to the code file
         :param target_size: target vocabulary size
         """
-        print("Learning BPE codes...")
-        fin = codecs.open(input_file, mode='r', encoding='utf-8')
-        fout = codecs.open(output_prefix + '.codes', mode='w', encoding='utf-8')
-        learn_bpe(fin, fout, target_size)
-        fin.close()
-        fout.close()
+        # only learn BPE codes if they do no exist yet.
+        if not os.path.isfile(output_prefix + '.codes'):
+            print("Learning BPE codes...")
+            fin = codecs.open(input_file, mode='r', encoding='utf-8')
+            fout = codecs.open(output_prefix + '.codes', mode='w', encoding='utf-8')
+            learn_bpe(fin, fout, target_size)
+            fin.close()
+            fout.close()
 
         print("Building BPE object...")
         codes = codecs.open(output_prefix + '.codes', mode='r', encoding='utf-8')
