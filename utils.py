@@ -531,11 +531,12 @@ class Corpus(object):
             if len(item.strip().split()) == 0:
                 continue
 
-            # Process BPE this item
-            if self.bpe is not None:
-                item = self.bpe.process_line(item)
-
             sentences = item.split('\n')  # list of sentences in this item
+
+            # Process BPE every sentence
+            if self.bpe is not None:
+                for i, sent in enumerate(sentences):
+                    sentences[i] = self.bpe.process_line(sent)
 
             start = 0  # index of the first sentences to keep in the `src`
             # for all sentences except the last one,
@@ -670,14 +671,14 @@ class Corpus(object):
             if len(item.strip().split()) == 0:
                 continue
 
-            # Process BPE this item
-            if self.bpe is not None:
-                item = self.bpe.process_line(item)
-
             sentences = item.split('\n')  # list of sentences in this item
 
             # for all sentences add words to dictionary & make a (src - tgt) pair
             for s in sentences:
+
+                # Process BPE this sentence
+                if self.bpe is not None:
+                    s = self.bpe.process_line(s)
 
                 # lowercase, strip, to ascii
                 src_sent = normalize_string(
