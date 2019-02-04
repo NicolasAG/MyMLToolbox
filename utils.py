@@ -11,6 +11,7 @@ import math
 import json
 import codecs
 import unicodedata
+import pickle as pkl
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -365,6 +366,12 @@ class Corpus(object):
         :param add_to_dict: add words to dictionary
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
+        # check if data has been preprocessed before
+        if os.path.isfile(path + '.preprocessed.pkl'):
+            with open(path + '.preprocessed.pkl', 'rb') as f:
+                src, tgt = pkl.load(f)
+                return src, tgt
+
         src = []  # list of contexts
         tgt = []  # list of next sentences
 
@@ -493,6 +500,10 @@ class Corpus(object):
                 truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
             ))
 
+        # save preprocessed data
+        with open(path + '.preprocessed.pkl', 'wb') as f:
+            pkl.dump((src, tgt), f, pkl.HIGHEST_PROTOCOL)
+
         return src, tgt
 
     def get_data_from_array(self, json_path, max_n_lines=-1, max_context_size=-1, max_seq_length=-1,
@@ -508,6 +519,12 @@ class Corpus(object):
         :param add_to_dict: add words to dictionary
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
+        # check if data has been preprocessed before
+        if os.path.isfile(json_path + '.preprocessed.pkl'):
+            with open(path + '.preprocessed.pkl', 'rb') as f:
+                src, tgt = pkl.load(f)
+                return src, tgt
+
         src = []  # list of contexts
         tgt = []  # list of next sentences
 
@@ -636,6 +653,10 @@ class Corpus(object):
                 truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
             ))
 
+        # save preprocessed data
+        with open(json_path + '.preprocessed.pkl', 'wb') as f:
+            pkl.dump((src, tgt), f, pkl.HIGHEST_PROTOCOL)
+
         return src, tgt
 
     def get_copydata_from_array(self, json_path, max_n_lines=-1, max_seq_length=-1,
@@ -649,6 +670,12 @@ class Corpus(object):
         :param add_to_dict: add words to dictionary
         :return: list of (src, tgt) pairs where src and tgt are the same sentence
         """
+        # check if data has been preprocessed before
+        if os.path.isfile(json_path + '.preprocessed.pkl'):
+            with open(path + '.preprocessed.pkl', 'rb') as f:
+                src, tgt = pkl.load(f)
+                return src, tgt
+
         src = []  # list of sentences
         tgt = []  # list of sentences
 
@@ -757,6 +784,10 @@ class Corpus(object):
             print("Truncated %d (%d) / %d = %4f target sentences" % (
                 truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
             ))
+
+        # save preprocessed data
+        with open(json_path + '.preprocessed.pkl', 'wb') as f:
+            pkl.dump((src, tgt), f, pkl.HIGHEST_PROTOCOL)
 
         return src, tgt
 
