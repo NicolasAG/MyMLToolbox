@@ -370,7 +370,18 @@ class Corpus(object):
         if os.path.isfile(path + '.preprocessed.pkl'):
             with open(path + '.preprocessed.pkl', 'rb') as f:
                 src, tgt = pkl.load(f)
-                return src, tgt
+
+            # add words to dictionary
+            if add_to_dict:
+                # only add words of the first src sentence
+                for word in src[0].split():
+                    self.dictionary.add_word(word)
+                # always add words of the tgt sentences
+                for tgt_words in tgt:
+                    for word in tgt_words.split():
+                        self.dictionary.add_word(word)
+
+            return src, tgt
 
         src = []  # list of contexts
         tgt = []  # list of next sentences
@@ -521,9 +532,20 @@ class Corpus(object):
         """
         # check if data has been preprocessed before
         if os.path.isfile(json_path + '.preprocessed.pkl'):
-            with open(path + '.preprocessed.pkl', 'rb') as f:
+            with open(json_path + '.preprocessed.pkl', 'rb') as f:
                 src, tgt = pkl.load(f)
-                return src, tgt
+
+            # add words to dictionary
+            if add_to_dict:
+                # only add words of the first src sentence
+                for word in src[0].split():
+                    self.dictionary.add_word(word)
+                # always add words of the tgt sentences
+                for tgt_words in tgt:
+                    for word in tgt_words.split():
+                        self.dictionary.add_word(word)
+
+            return src, tgt
 
         src = []  # list of contexts
         tgt = []  # list of next sentences
@@ -672,9 +694,16 @@ class Corpus(object):
         """
         # check if data has been preprocessed before
         if os.path.isfile(json_path + '.preprocessed.pkl'):
-            with open(path + '.preprocessed.pkl', 'rb') as f:
+            with open(json_path + '.preprocessed.pkl', 'rb') as f:
                 src, tgt = pkl.load(f)
-                return src, tgt
+
+            # add words to dictionary
+            if add_to_dict:
+                for src_words in src:
+                    for word in src_words.split():
+                        self.dictionary.add_word(word)
+
+            return src, tgt
 
         src = []  # list of sentences
         tgt = []  # list of sentences
