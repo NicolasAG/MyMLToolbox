@@ -451,6 +451,7 @@ class AttentionDecoder(HREDDecoder):
                  h_t          ~(n_layers, bs, hidden_size)
                  attn_weights ~(bs, seq=1, max_src_len)
         """
+        # Note: this is called at each decoding step, one token at a time...
         x = self.embedding(x).view(x.size(0), 1, -1)  # ~(bs, seq=1, embedding_size)
         x = self.dropout(x)
 

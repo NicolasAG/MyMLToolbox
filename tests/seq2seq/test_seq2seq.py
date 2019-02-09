@@ -1,10 +1,10 @@
 """
 Tutorial followed from:
 
-Pytorch Tuto
+Pytorch seq-2-seq Tuto
 https://github.com/yunjey/pytorch-tutorial/blob/master/tutorials/02-intermediate/language_model/main.py
 
-Pytorch Tuto:
+Pytorch translation Tuto with attention decoder:
 https://github.com/spro/practical-pytorch/blob/master/seq2seq-translation/seq2seq-translation-batched.ipynb
 
 also look at
@@ -125,7 +125,7 @@ def process_one_batch(encoder, decoder, batch, corpus, optimizer=None, beam_size
         if random.random() < tf_prob:
             use_teacher_forcing = True
 
-        # decode the target sentence
+        # decode one token at a time
         for step in range(max_tgt):
 
             # decoder takes in: x        ~(bs)
