@@ -353,12 +353,12 @@ class Corpus(object):
         self.bpe = BPE(codes)
         codes.close()
 
-    def get_data_from_lines(self, path, max_n_lines=-1, max_context_size=-1, max_seq_length=-1,
+    def get_data_from_lines(self, path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
                             reverse_tgt=False, debug=False, add_to_dict=True):
         """
         Reads an input file where each line is considered as one conversation with more than one sentence.
         :param path: path to a readable file
-        :param max_n_lines: consider top lines
+        :param max_n_examples: consider top examples
         :param max_context_size: number of sentences to keep in the context
         :param max_seq_length: max number of tokens in one sequence
         :param reverse_tgt: reverse tokens of the tgt sequence
@@ -370,6 +370,7 @@ class Corpus(object):
         if os.path.isfile(path + '.preprocessed.pkl'):
             with open(path + '.preprocessed.pkl', 'rb') as f:
                 src, tgt = pkl.load(f)
+            assert len(src) == len(tgt)
 
             # add words to dictionary
             if add_to_dict:
@@ -380,6 +381,11 @@ class Corpus(object):
                 for tgt_words in tgt:
                     for word in tgt_words.split():
                         self.dictionary.add_word(word)
+
+            # remove extra examples if needed
+            if 0 < max_n_examples <= len(src):
+                src = src[:max_n_examples]
+                tgt = tgt[:max_n_examples]
 
             return src, tgt
 
@@ -414,8 +420,7 @@ class Corpus(object):
                 sentences = sent_tokenize(line)  # list of sentences in this line
 
                 start = 0  # index of the first sentences to keep in the `src`
-                # for all sentences except the last one,
-                # add words to dictionary & make a (src - tgt) pair
+                # for all sentences except the last one, make a (src - tgt) pair
                 for s_id in range(len(sentences) - 1):
                     if max_context_size > 0:
                         sentences_to_consider = sentences[start: s_id + 1]
@@ -478,12 +483,15 @@ class Corpus(object):
                     src.append(' '.join(src_words))
                     tgt.append(' '.join(tgt_words))
 
+                    if 0 < max_n_examples <= len(src):
+                        break
+
                 # bar.update()
                 line_done += 1
                 if line_done % 1000 == 0:
                     print("#", end='')
 
-                if 0 < max_n_lines <= line_done:
+                if 0 < max_n_examples <= len(src):
                     break
 
             print("")
@@ -517,12 +525,12 @@ class Corpus(object):
 
         return src, tgt
 
-    def get_data_from_array(self, json_path, max_n_lines=-1, max_context_size=-1, max_seq_length=-1,
+    def get_data_from_array(self, json_path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
                             reverse_tgt=False, debug=False, add_to_dict=True):
         """
         Reads an array where each item is considered as one story with sentences splitted by \n.
         :param json_path: path to a json file
-        :param max_n_lines: consider top lines
+        :param max_n_examples: consider top examples
         :param max_context_size: number of sentences to keep in the context
         :param max_seq_length: max number of tokens in one sequence
         :param reverse_tgt: reverse tokens of the tgt sequence
@@ -534,6 +542,7 @@ class Corpus(object):
         if os.path.isfile(json_path + '.preprocessed.pkl'):
             with open(json_path + '.preprocessed.pkl', 'rb') as f:
                 src, tgt = pkl.load(f)
+            assert len(src) == len(tgt)
 
             # add words to dictionary
             if add_to_dict:
@@ -544,6 +553,11 @@ class Corpus(object):
                 for tgt_words in tgt:
                     for word in tgt_words.split():
                         self.dictionary.add_word(word)
+
+            # remove extra examples if needed
+            if 0 < max_n_examples <= len(src):
+                src = src[:max_n_examples]
+                tgt = tgt[:max_n_examples]
 
             return src, tgt
 
@@ -578,8 +592,7 @@ class Corpus(object):
                     sentences[i] = self.bpe.process_line(sent)
 
             start = 0  # index of the first sentences to keep in the `src`
-            # for all sentences except the last one,
-            # add words to dictionary & make a (src - tgt) pair
+            # for all sentences except the last one, make a (src - tgt) pair
             for s_id in range(len(sentences) - 1):
                 if max_context_size > 0:
                     sentences_to_consider = sentences[start: s_id + 1]
@@ -642,12 +655,15 @@ class Corpus(object):
                 src.append(' '.join(src_words))
                 tgt.append(' '.join(tgt_words))
 
+                if 0 < max_n_examples <= len(src):
+                    break
+
             # bar.update()
             item_done += 1
             if item_done % 1000 == 0:
                 print("#", end='')
 
-            if 0 < max_n_lines <= item_done:
+            if 0 < max_n_examples <= len(src):
                 break
 
         print("")
@@ -681,12 +697,12 @@ class Corpus(object):
 
         return src, tgt
 
-    def get_copydata_from_array(self, json_path, max_n_lines=-1, max_seq_length=-1,
+    def get_copydata_from_array(self, json_path, max_n_examples=-1, max_seq_length=-1,
                                 debug=False, add_to_dict=True):
         """
         Reads an array where each item is considered as one story with sentences splitted by \n.
         :param json_path: path to a json file
-        :param max_n_lines: consider top lines
+        :param max_n_examples: consider top examples
         :param max_seq_length: max number of tokens in one sequence
         :param debug: print a few item examples
         :param add_to_dict: add words to dictionary
@@ -696,12 +712,18 @@ class Corpus(object):
         if os.path.isfile(json_path + '.preprocessed.pkl'):
             with open(json_path + '.preprocessed.pkl', 'rb') as f:
                 src, tgt = pkl.load(f)
+            assert len(src) == len(tgt)
 
             # add words to dictionary
             if add_to_dict:
                 for src_words in src:
                     for word in src_words.split():
                         self.dictionary.add_word(word)
+
+            # remove extra examples if needed
+            if 0 < max_n_examples <= len(src):
+                src = src[:max_n_examples]
+                tgt = tgt[:max_n_examples]
 
             return src, tgt
 
@@ -782,11 +804,14 @@ class Corpus(object):
                 src.append(' '.join(src_words))
                 tgt.append(' '.join(tgt_words))
 
+                if 0 < max_n_examples <= len(src):
+                    break
+
             item_done += 1
             if item_done % 1000 == 0:
                 print("#", end='')
 
-            if 0 < max_n_lines <= item_done:
+            if 0 < max_n_examples <= len(src):
                 break
 
         print("")
