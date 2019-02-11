@@ -1,10 +1,14 @@
 import numpy as np
 import collections
 
+from nltk.util import ngrams
+
 import torch
 from torch.nn import functional
 
-# great thanks from the following repo for the implementation https://github.com/GuessWhatGame/guesswhat/blob/master/src/guesswhat/models/qgen/qgen_beamsearch_wrapper.py
+# great thanks from the following repo for the implementation
+# https://github.com/GuessWhatGame/guesswhat/blob/master/src/guesswhat/models/qgen/qgen_beamsearch_wrapper.py
+
 # and to this one: https://github.com/placaille/nmt-comp550/blob/master/src/beam_wrapper.py
 
 BeamToken = collections.namedtuple(
@@ -73,12 +77,25 @@ def create_initial_beam(decoder_state, i, enc_ht, enc_out):
 
 class BSWrapper(object):
     def __init__(self, decoder, decoder_state, enc_ht, batch_size, max_len, beam_size,
-                 corpus, enc_out=None, reverse=False):
+                 corpus, enc_out=None, reverse=False, avoid_repeat=-1):
+        """
+        :param decoder: decoder rnn
+        :param decoder_state: hidden state from decoder rnn ~(n_layers, bs, hidden_size)
+        :param enc_ht: last hidden states of the encoder - used in all hred decoders ~(n_layers, bs, hidden_size)
+        :param batch_size: number of sentences to decode at the same time
+        :param max_len: max number of tokens in a sentence
+        :param beam_size: number of alternatives to consider for each next token
+        :param corpus: MyMLToolbox.utils.Corpus object holding vocabulary
+        :param enc_out: outputs of the encoder - used for attentive decoder ~(bs, max_enc_len, hidden_size)
+        :param reverse: generate sentences from last word to the first
+        :param avoid_repeat: hack the beam to avoid repeating the same n-gram in the same sentence
+        """
         self.decoder = decoder
         self.corpus = corpus
-        self.max_len = max_len
+        self.max_len = max_len if max_len > 0 else 300
         self.beam_size = beam_size
         self.batch_size = batch_size
+        self.avoid_repeat = avoid_repeat
 
         if reverse:
             self.start_token = self.corpus.eos_tag
@@ -125,7 +142,8 @@ class BSWrapper(object):
     def eval_one_beam(self, initial_beam, keep_trajectories=False):
         """
         Perform beam search
-        :param keep_trajectories: Keep trace of the previous beam if we want to keep the trajectory
+        :param initial_beam: previous beam that will condition this generation
+        :param keep_trajectories: Keep trace of the previous beam
         """
         to_evaluate = [initial_beam]
         memory = []
@@ -166,6 +184,17 @@ class BSWrapper(object):
                 # reshape tensor (remove batch_size=1)
                 log_p = functional.log_softmax(dec_out, dim=1)
                 log_p = log_p.cpu().detach().numpy()[0]  # ~(vocab)
+
+                if self.avoid_repeat > 1:
+                    # set the probability of tokens that would produce a n-gram repetition to 0
+                    already_decoded = beam_token.path[0]
+                    unique_n_grams = set(ngrams(already_decoded, self.avoid_repeat))
+                    if len(unique_n_grams) > 0:
+                        previous_nm1_gram = already_decoded[-(self.avoid_repeat-1):]
+                        # for each word in vocab, avoid ngram
+                        for tok in range(log_p):
+                            if tuple(previous_nm1_gram + [tok]) in unique_n_grams:
+                                log_p[w] = 0.0
 
                 # put into memory the k-best tokens of this sample (k=beam_size)
                 k_best_word_indices = np.argpartition(log_p, -self.beam_size)[-self.beam_size:]
