@@ -185,16 +185,20 @@ class BSWrapper(object):
                 log_p = functional.log_softmax(dec_out, dim=1)
                 log_p = log_p.cpu().detach().numpy()[0]  # ~(vocab)
 
+                ###
+                # set the probability of tokens that would produce a n-gram repetition to 0
+                ###
                 if self.avoid_repeat > 1:
-                    # set the probability of tokens that would produce a n-gram repetition to 0
+                    # get the previous tokens
                     already_decoded = beam_token.path[0]
-                    unique_n_grams = set(ngrams(already_decoded, self.avoid_repeat))
-                    if len(unique_n_grams) > 0:
+                    if len(already_decoded) > self.avoid_repeat:
+                        # get the list of n-grams from previous tokens
+                        unique_n_grams = set(ngrams(already_decoded, self.avoid_repeat))
                         previous_nm1_gram = already_decoded[-(self.avoid_repeat-1):]
                         # for each word in vocab, avoid ngram
-                        for tok in range(log_p):
+                        for tok in range(len(log_p)):
                             if tuple(previous_nm1_gram + [tok]) in unique_n_grams:
-                                log_p[w] = 0.0
+                                log_p[tok] = -np.inf
 
                 # put into memory the k-best tokens of this sample (k=beam_size)
                 k_best_word_indices = np.argpartition(log_p, -self.beam_size)[-self.beam_size:]
