@@ -1131,3 +1131,11 @@ def show_attention(input_sequence, output_words, attentions, name=""):
     else:
         plt.show()
     plt.close()
+
+
+def count_parameters(model):
+    """
+    Return the number of trainable parameters in a Pytorch model
+    :param model: torch.nn Model
+    """
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
