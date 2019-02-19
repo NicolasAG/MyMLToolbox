@@ -187,8 +187,8 @@ def main():
     print("\nLoading data...")
     corpus = Corpus()
     corpus.learn_bpe('../train_data.txt', '../bpe10', 10)
-    train_src, train_tgt = corpus.get_data_from_lines('../train_data.txt', debug=True)
-    test_src, test_tgt = corpus.get_data_from_lines('../test_data.txt', debug=True)
+    train_src, train_tgt = corpus.get_data_from_lines('../train_data.txt', max_context_size=1, debug=True)
+    test_src, test_tgt = corpus.get_data_from_lines('../test_data.txt', max_context_size=1, debug=True)
     # make sure source and target have the same number of examples
     assert len(train_src) == len(train_tgt)
     assert len(test_src) == len(test_tgt)

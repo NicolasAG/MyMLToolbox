@@ -2,7 +2,7 @@ src: <sos> h@@ o@@ w are you ? <eos>
 gold: <sos> f@@ in@@ e t@@ ha@@ n@@ k@@ s@@ , a@@ n@@ d you ? <eos>
 pred: <sos> f@@ in@@ e t@@ ha@@ n@@ k@@ s@@ , a@@ n@@ d you ? <eos>
 
-src: <sos> h@@ o@@ w are you ? <eos> <sos> f@@ in@@ e t@@ ha@@ n@@ k@@ s@@ , a@@ n@@ d you ? <eos>
+src: <sos> f@@ in@@ e t@@ ha@@ n@@ k@@ s@@ , a@@ n@@ d you ? <eos>
 gold: <sos> g@@ o@@ o@@ d t@@ ha@@ n@@ k you@@ . <eos>
 pred: <sos> g@@ o@@ o@@ d t@@ ha@@ n@@ k you@@ . <eos>
 
@@ -10,7 +10,7 @@ src: <sos> w@@ ha@@ t d@@ o you d@@ o@@ ? <eos>
 gold: <sos> n@@ o@@ t@@ h@@ in@@ g m@@ u@@ c@@ h@@ . <eos>
 pred: <sos> n@@ o@@ t@@ h@@ in@@ g m@@ u@@ c@@ h@@ . <eos>
 
-src: <sos> w@@ ha@@ t d@@ o you d@@ o@@ ? <eos> <sos> n@@ o@@ t@@ h@@ in@@ g m@@ u@@ c@@ h@@ . <eos>
+src: <sos> n@@ o@@ t@@ h@@ in@@ g m@@ u@@ c@@ h@@ . <eos>
 gold: <sos> are you s@@ e@@ r@@ i@@ o@@ u@@ s@@ ? <eos>
 pred: <sos> are you s@@ e@@ r@@ i@@ o@@ u@@ s@@ ? <eos>
 
@@ -18,11 +18,11 @@ src: <sos> w@@ ha@@ t are you d@@ o@@ in@@ g@@ ? <eos>
 gold: <sos> i@@ '@@ m l@@ i@@ s@@ t@@ en@@ in@@ g t@@ o m@@ u@@ s@@ i@@ c@@ . <eos>
 pred: <sos> i@@ '@@ m l@@ i@@ s@@ t@@ en@@ in@@ g t@@ o m@@ u@@ s@@ i@@ c@@ . <eos>
 
-src: <sos> w@@ ha@@ t are you d@@ o@@ in@@ g@@ ? <eos> <sos> i@@ '@@ m l@@ i@@ s@@ t@@ en@@ in@@ g t@@ o m@@ u@@ s@@ i@@ c@@ . <eos>
+src: <sos> i@@ '@@ m l@@ i@@ s@@ t@@ en@@ in@@ g t@@ o m@@ u@@ s@@ i@@ c@@ . <eos>
 gold: <sos> w@@ h@@ i@@ c@@ h o@@ n@@ e@@ ? <eos>
 pred: <sos> w@@ h@@ i@@ c@@ h o@@ n@@ e@@ ? <eos>
 
-src: <sos> w@@ ha@@ t are you d@@ o@@ in@@ g@@ ? <eos> <sos> i@@ '@@ m l@@ i@@ s@@ t@@ en@@ in@@ g t@@ o m@@ u@@ s@@ i@@ c@@ . <eos> <sos> w@@ h@@ i@@ c@@ h o@@ n@@ e@@ ? <eos>
+src: <sos> w@@ h@@ i@@ c@@ h o@@ n@@ e@@ ? <eos>
 gold: <sos> a@@ ven@@ g@@ e@@ d s@@ e@@ ven@@ f@@ o@@ l@@ d@@ . <eos>
 pred: <sos> a@@ ven@@ g@@ e@@ d s@@ e@@ ven@@ f@@ o@@ l@@ d@@ . <eos>
 

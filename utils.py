@@ -353,22 +353,23 @@ class Corpus(object):
         self.bpe = BPE(codes)
         codes.close()
 
-    def get_data_from_lines(self, path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
-                            reverse_tgt=False, debug=False, add_to_dict=True):
+    def already_preprocessed(self, path, max_n_examples, max_context_size, max_seq_length, reverse_tgt):
         """
-        Reads an input file where each line is considered as one conversation with more than one sentence.
-        :param path: path to a readable file
-        :param max_n_examples: consider top examples
+        Check if data was already preprocessed with these specific arguments.
+        If so, return it, else,  return empty list
+        :param path: prefix to a preprocessed file
+        :param max_n_examples: consider top k examples
         :param max_context_size: number of sentences to keep in the context
         :param max_seq_length: max number of tokens in one sequence
         :param reverse_tgt: reverse tokens of the tgt sequence
-        :param debug: print a few item examples
-        :param add_to_dict: add words to dictionary
-        :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
         # check if data has been preprocessed before
-        if os.path.isfile(path + '.preprocessed.pkl'):
-            with open(path + '.preprocessed.pkl', 'rb') as f:
+        if os.path.isfile(path + '.preprocessed-mcs%d-msl%d-rt%d-bpe%d.pkl' % (
+                max_context_size, max_seq_length, reverse_tgt, self.bpe is not None
+        )):
+            with open(path + '.preprocessed-mcs%d-msl%d-rt%d-bpe%d.pkl' % (
+                    max_context_size, max_seq_length, reverse_tgt, self.bpe is not None
+            ), 'rb') as f:
                 src, tgt = pkl.load(f)
             assert len(src) == len(tgt)
 
@@ -386,11 +387,63 @@ class Corpus(object):
             if 0 < max_n_examples <= len(src):
                 src = src[:max_n_examples]
                 tgt = tgt[:max_n_examples]
+                return src, tgt
+            else:
+                print("previously processed data has only %d examples" % len(src))
+                print("this experiment asked for %d examples" % max_n_examples)
+                reprocess_data = input("reprocess data (yes): ")
+                if reprocess_data.lower() in ['n', 'no', '0']:
+                    print("ok, working with %d examples then..." % len(src))
+                    return src, tgt
 
+        return [], []
+
+    def save_preprocessed_data(self, path, max_context_size, max_seq_length, reverse_tgt, src, tgt):
+        """
+        save preprocessed data
+        """
+        with open(path + '.preprocessed-mcs%d-msl%d-rt%d-bpe%d.pkl' % (
+                max_context_size, max_seq_length, reverse_tgt, self.bpe is not None
+        ), 'wb') as f:
+            pkl.dump((src, tgt), f, pkl.HIGHEST_PROTOCOL)
+
+    @staticmethod
+    def print_few_examples(src, tgt):
+        # print a few random examples
+        start1 = 0
+        start2 = 50
+        for src_ex, tgt_ex in zip(src[start1: start1 + 3], tgt[start1: start1 + 3]):
+            print('src:', src_ex)
+            print('tgt:', tgt_ex)
+            print('')
+        if len(src) > start2 + 3:
+            for src_ex, tgt_ex in zip(src[start2: start2 + 3], tgt[start2: start2 + 3]):
+                print('src:', src_ex)
+                print('tgt:', tgt_ex)
+                print('')
+
+    def get_data_from_lines(self, path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
+                            reverse_tgt=False, debug=False, add_to_dict=True):
+        """
+        Reads an input file where each line is considered as one conversation with more than one sentence.
+        :param path: path to a readable file
+        :param max_n_examples: consider top examples
+        :param max_context_size: number of sentences to keep in the context
+        :param max_seq_length: max number of tokens in one sequence
+        :param reverse_tgt: reverse tokens of the tgt sequence
+        :param debug: print a few item examples
+        :param add_to_dict: add words to dictionary
+        :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
+        """
+        # check if data has been preprocessed before
+        src, tgt = self.already_preprocessed(path, max_n_examples, max_context_size, max_seq_length, reverse_tgt)
+
+        if len(src) > 0:
             return src, tgt
 
-        src = []  # list of contexts
-        tgt = []  # list of next sentences
+        # else:
+        # src = []  # list of contexts
+        # tgt = []  # list of next sentences
 
         truncated_src = 0  # number of truncated source sequences
         truncated_tgt = 0  # number of truncated target sequences
@@ -497,18 +550,7 @@ class Corpus(object):
             print("")
 
         if debug:
-            # print a few random examples
-            start1 = 0
-            start2 = 50
-            for src_ex, tgt_ex in zip(src[start1: start1+3], tgt[start1: start1+3]):
-                print('src:', src_ex)
-                print('tgt:', tgt_ex)
-                print('')
-            if len(src) > start2+3:
-                for src_ex, tgt_ex in zip(src[start2: start2+3], tgt[start2: start2+3]):
-                    print('src:', src_ex)
-                    print('tgt:', tgt_ex)
-                    print('')
+            self.print_few_examples(src, tgt)
 
         if truncated_src > 0:
             print("Truncated %d (%d) / %d = %4f source sentences" % (
@@ -519,9 +561,7 @@ class Corpus(object):
                 truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
             ))
 
-        # save preprocessed data
-        with open(path + '.preprocessed.pkl', 'wb') as f:
-            pkl.dump((src, tgt), f, pkl.HIGHEST_PROTOCOL)
+        self.save_preprocessed_data(path, max_context_size, max_seq_length, reverse_tgt, src, tgt)
 
         return src, tgt
 
@@ -539,30 +579,14 @@ class Corpus(object):
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
         # check if data has been preprocessed before
-        if os.path.isfile(json_path + '.preprocessed.pkl'):
-            with open(json_path + '.preprocessed.pkl', 'rb') as f:
-                src, tgt = pkl.load(f)
-            assert len(src) == len(tgt)
+        src, tgt = self.already_preprocessed(path, max_n_examples, max_context_size, max_seq_length, reverse_tgt)
 
-            # add words to dictionary
-            if add_to_dict:
-                # only add words of the first src sentence
-                for word in src[0].split():
-                    self.dictionary.add_word(word)
-                # always add words of the tgt sentences
-                for tgt_words in tgt:
-                    for word in tgt_words.split():
-                        self.dictionary.add_word(word)
-
-            # remove extra examples if needed
-            if 0 < max_n_examples <= len(src):
-                src = src[:max_n_examples]
-                tgt = tgt[:max_n_examples]
-
+        if len(src) > 0:
             return src, tgt
 
-        src = []  # list of contexts
-        tgt = []  # list of next sentences
+        # else:
+        # src = []  # list of contexts
+        # tgt = []  # list of next sentences
 
         truncated_src = 0  # number of truncated source sequences
         truncated_tgt = 0  # number of truncated target sequences
@@ -669,18 +693,7 @@ class Corpus(object):
         print("")
 
         if debug:
-            # print a few random examples
-            start1 = 0
-            start2 = 50
-            for src_ex, tgt_ex in zip(src[start1: start1+3], tgt[start1: start1+3]):
-                print('src:', src_ex)
-                print('tgt:', tgt_ex)
-                print('')
-            if len(src) > start2+3:
-                for src_ex, tgt_ex in zip(src[start2: start2+3], tgt[start2: start2+3]):
-                    print('src:', src_ex)
-                    print('tgt:', tgt_ex)
-                    print('')
+            self.print_few_examples(src, tgt)
 
         if truncated_src > 0:
             print("Truncated %d (%d) / %d = %4f source sentences" % (
@@ -691,9 +704,7 @@ class Corpus(object):
                 truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
             ))
 
-        # save preprocessed data
-        with open(json_path + '.preprocessed.pkl', 'wb') as f:
-            pkl.dump((src, tgt), f, pkl.HIGHEST_PROTOCOL)
+        self.save_preprocessed_data(path, max_context_size, max_seq_length, reverse_tgt, src, tgt)
 
         return src, tgt
 
@@ -709,26 +720,14 @@ class Corpus(object):
         :return: list of (src, tgt) pairs where src and tgt are the same sentence
         """
         # check if data has been preprocessed before
-        if os.path.isfile(json_path + '.preprocessed.pkl'):
-            with open(json_path + '.preprocessed.pkl', 'rb') as f:
-                src, tgt = pkl.load(f)
-            assert len(src) == len(tgt)
+        src, tgt = self.already_preprocessed(path, max_n_examples, -1, max_seq_length, 0)
 
-            # add words to dictionary
-            if add_to_dict:
-                for src_words in src:
-                    for word in src_words.split():
-                        self.dictionary.add_word(word)
-
-            # remove extra examples if needed
-            if 0 < max_n_examples <= len(src):
-                src = src[:max_n_examples]
-                tgt = tgt[:max_n_examples]
-
+        if len(src) > 0:
             return src, tgt
 
-        src = []  # list of sentences
-        tgt = []  # list of sentences
+        # else:
+        # src = []  # list of contexts
+        # tgt = []  # list of next sentences
 
         truncated_src = 0  # number of truncated source sequences
         truncated_tgt = 0  # number of truncated target sequences
@@ -817,18 +816,7 @@ class Corpus(object):
         print("")
 
         if debug:
-            # print a few random examples
-            start1 = 0
-            start2 = 50
-            for src_ex, tgt_ex in zip(src[start1: start1 + 3], tgt[start1: start1 + 3]):
-                print('src:', src_ex)
-                print('tgt:', tgt_ex)
-                print('')
-            if len(src) > start2 + 3:
-                for src_ex, tgt_ex in zip(src[start2: start2 + 3], tgt[start2: start2 + 3]):
-                    print('src:', src_ex)
-                    print('tgt:', tgt_ex)
-                    print('')
+            self.print_few_examples(src, tgt)
 
         if truncated_src > 0:
             print("Truncated %d (%d) / %d = %4f source sentences" % (
@@ -839,9 +827,7 @@ class Corpus(object):
                 truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
             ))
 
-        # save preprocessed data
-        with open(json_path + '.preprocessed.pkl', 'wb') as f:
-            pkl.dump((src, tgt), f, pkl.HIGHEST_PROTOCOL)
+        self.save_preprocessed_data(path, -1, max_seq_length, 0, src, tgt)
 
         return src, tgt
 
