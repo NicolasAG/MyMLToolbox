@@ -27,7 +27,7 @@ from MyMLToolbox.external.subword_nmt.apply_bpe import BPE
 
 # Check nltk dependencies
 try:
-    nltk.find('punkt')
+    nltk.find('tokenizers/punkt')
 except LookupError:
     nltk.download('punkt')
 
