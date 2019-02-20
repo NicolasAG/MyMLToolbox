@@ -16,12 +16,20 @@ import pickle as pkl
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
+import nltk
 from nltk import sent_tokenize, word_tokenize
 
 from gensim.models import KeyedVectors
 
 from MyMLToolbox.external.subword_nmt.learn_bpe import learn_bpe
 from MyMLToolbox.external.subword_nmt.apply_bpe import BPE
+
+
+# Check nltk dependencies
+try:
+    nltk.find('punkt')
+except LookupError:
+    nltk.download('punkt')
 
 
 def str2bool(v):
@@ -579,7 +587,7 @@ class Corpus(object):
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
         # check if data has been preprocessed before
-        src, tgt = self.already_preprocessed(path, max_n_examples, max_context_size, max_seq_length, reverse_tgt)
+        src, tgt = self.already_preprocessed(json_path, max_n_examples, max_context_size, max_seq_length, reverse_tgt)
 
         if len(src) > 0:
             return src, tgt
@@ -704,7 +712,7 @@ class Corpus(object):
                 truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
             ))
 
-        self.save_preprocessed_data(path, max_context_size, max_seq_length, reverse_tgt, src, tgt)
+        self.save_preprocessed_data(json_path, max_context_size, max_seq_length, reverse_tgt, src, tgt)
 
         return src, tgt
 
@@ -720,7 +728,7 @@ class Corpus(object):
         :return: list of (src, tgt) pairs where src and tgt are the same sentence
         """
         # check if data has been preprocessed before
-        src, tgt = self.already_preprocessed(path, max_n_examples, -1, max_seq_length, 0)
+        src, tgt = self.already_preprocessed(json_path, max_n_examples, -1, max_seq_length, 0)
 
         if len(src) > 0:
             return src, tgt
@@ -827,7 +835,7 @@ class Corpus(object):
                 truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
             ))
 
-        self.save_preprocessed_data(path, -1, max_seq_length, 0, src, tgt)
+        self.save_preprocessed_data(json_path, -1, max_seq_length, 0, src, tgt)
 
         return src, tgt
 
