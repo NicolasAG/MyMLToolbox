@@ -361,7 +361,8 @@ class Corpus(object):
         self.bpe = BPE(codes)
         codes.close()
 
-    def already_preprocessed(self, path, max_n_examples, max_context_size, max_seq_length, reverse_tgt):
+    def already_preprocessed(self, path, max_n_examples, max_context_size, max_seq_length,
+                             reverse_tgt, add_to_dict):
         """
         Check if data was already preprocessed with these specific arguments.
         If so, return it, else,  return empty list
@@ -370,6 +371,7 @@ class Corpus(object):
         :param max_context_size: number of sentences to keep in the context
         :param max_seq_length: max number of tokens in one sequence
         :param reverse_tgt: reverse tokens of the tgt sequence
+        :param add_to_dict: add words to dictionary
         """
         # check if data has been preprocessed before
         if os.path.isfile(path + '.preprocessed-mcs%d-msl%d-rt%d-bpe%d.pkl' % (
@@ -444,7 +446,8 @@ class Corpus(object):
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
         # check if data has been preprocessed before
-        src, tgt = self.already_preprocessed(path, max_n_examples, max_context_size, max_seq_length, reverse_tgt)
+        src, tgt = self.already_preprocessed(path, max_n_examples, max_context_size,
+                                             max_seq_length, reverse_tgt, add_to_dict)
 
         if len(src) > 0:
             return src, tgt
@@ -587,7 +590,8 @@ class Corpus(object):
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
         # check if data has been preprocessed before
-        src, tgt = self.already_preprocessed(json_path, max_n_examples, max_context_size, max_seq_length, reverse_tgt)
+        src, tgt = self.already_preprocessed(json_path, max_n_examples, max_context_size,
+                                             max_seq_length, reverse_tgt, add_to_dict)
 
         if len(src) > 0:
             return src, tgt
@@ -728,7 +732,11 @@ class Corpus(object):
         :return: list of (src, tgt) pairs where src and tgt are the same sentence
         """
         # check if data has been preprocessed before
-        src, tgt = self.already_preprocessed(json_path, max_n_examples, -1, max_seq_length, 0)
+        src, tgt = self.already_preprocessed(json_path,
+                                             max_n_examples=max_n_examples,
+                                             max_context_size=-1,
+                                             max_seq_length=max_seq_length,
+                                             reverse_tgt=0, add_to_dict=add_to_dict)
 
         if len(src) > 0:
             return src, tgt
