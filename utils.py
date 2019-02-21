@@ -385,10 +385,11 @@ class Corpus(object):
 
             # add words to dictionary
             if add_to_dict:
-                # only add words of the first src sentence
-                for word in src[0].split():
-                    self.dictionary.add_word(word)
-                # always add words of the tgt sentences
+                # add all words in the source sentence
+                for src_words in src:
+                    for word in src_words.split():
+                        self.dictionary.add_word(word)
+                # add all words in the target sentence
                 for tgt_words in tgt:
                     for word in tgt_words.split():
                         self.dictionary.add_word(word)
@@ -467,10 +468,7 @@ class Corpus(object):
         f.close()
 
         with open(path, 'r') as f:
-
-            # bar = pyprind.ProgBar(num_lines, stream=sys.stdout)
-            line_done = 0
-
+            examples_done = 0
             for line in f:
 
                 # skip empty lines
@@ -547,13 +545,13 @@ class Corpus(object):
                     src.append(' '.join(src_words))
                     tgt.append(' '.join(tgt_words))
 
+                    # bar.update()
+                    examples_done += 1
+                    if examples_done % 10000 == 0:
+                        print("#", end='')
+
                     if 0 < max_n_examples <= len(src):
                         break
-
-                # bar.update()
-                line_done += 1
-                if line_done % 1000 == 0:
-                    print("#", end='')
 
                 if 0 < max_n_examples <= len(src):
                     break
@@ -611,8 +609,7 @@ class Corpus(object):
 
         print("%d items" % len(array))
 
-        # bar = pyprind.ProgBar(len(array), stream=sys.stdout)
-        item_done = 0
+        examples_done = 0
 
         for item in array:
 
@@ -691,13 +688,12 @@ class Corpus(object):
                 src.append(' '.join(src_words))
                 tgt.append(' '.join(tgt_words))
 
+                examples_done += 1
+                if examples_done % 10000 == 0:
+                    print("#", end='')
+
                 if 0 < max_n_examples <= len(src):
                     break
-
-            # bar.update()
-            item_done += 1
-            if item_done % 1000 == 0:
-                print("#", end='')
 
             if 0 < max_n_examples <= len(src):
                 break
@@ -757,7 +753,7 @@ class Corpus(object):
 
         print("%d items" % len(array))
 
-        item_done = 0
+        examples_done = 0
         for item in array:
 
             # skip empty items
@@ -819,12 +815,12 @@ class Corpus(object):
                 src.append(' '.join(src_words))
                 tgt.append(' '.join(tgt_words))
 
+                examples_done += 1
+                if examples_done % 10000 == 0:
+                    print("#", end='')
+
                 if 0 < max_n_examples <= len(src):
                     break
-
-            item_done += 1
-            if item_done % 1000 == 0:
-                print("#", end='')
 
             if 0 < max_n_examples <= len(src):
                 break
