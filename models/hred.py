@@ -447,7 +447,7 @@ class AttentionDecoder(HREDDecoder):
         :param enc_outs: encoder output vectors of the last layer at each time step
                          ~(bs, max_src_len, n_dir*size)
 
-        :return: out          ~(bs, vocab_size)
+        :return: dec_out      ~(bs, vocab_size)
                  h_t          ~(n_layers, bs, hidden_size)
                  attn_weights ~(bs, seq=1, max_src_len)
         """
@@ -469,36 +469,41 @@ class AttentionDecoder(HREDDecoder):
         decoder_hidden = torch.cat((h_tm1, context), 2)               # ~(n_layers, bs, hidden_size + context_size)
         decoder_hidden = torch.tanh(self.pre_concat(decoder_hidden))  # ~(n_layers, bs, hidden_size)
 
+        del h_tm1
+
         # feed in input & new context to RNN
         if self.rnn_type == 'lstm':
-            tmp_out, h_t = self.rnn(x, (decoder_hidden, c_tm1))
+            dec_out, h_t = self.rnn(x, (decoder_hidden, c_tm1))
             # out ~(bs, seq=1, hidden_size)
             # h_t ~(n_layers, bs, hidden_size),  ~(n_layers, bs, hidden_size)
+            del c_tm1
         else:
-            tmp_out, h_t = self.rnn(x, decoder_hidden)
+            dec_out, h_t = self.rnn(x, decoder_hidden)
             # out ~(bs, seq=1, hidden_size)
             # h_t ~(n_layers, bs, hidden_size)
+
+        del decoder_hidden
 
         ####
         # Compute attention weights
         ####
         # enc_outs ~(bs, enc_seq, enc_size)
-        attn_weights = self.attn(tmp_out, enc_outs)  # ~(bs, dec_seq=1, max_src_len)
+        attn_weights = self.attn(dec_out, enc_outs)  # ~(bs, dec_seq=1, max_src_len)
 
         # build context from encoder outputs & attention weights
-        w_context = enc_outs * attn_weights.permute(0, 2, 1)  # ~(bs, max_src_len, enc_size)
-        w_context = w_context.sum(dim=1)                      # ~(bs, enc_size)
+        enc_outs = enc_outs * attn_weights.permute(0, 2, 1)  # ~(bs, max_src_len, enc_size)
+        enc_outs = enc_outs.sum(dim=1)                       # ~(bs, enc_size)
 
         # get new outputs after concatenating weighted context
-        tmp_out = tmp_out.squeeze(1)                   # ~(bs, hidden_size)
-        tmp_out = torch.cat((w_context, tmp_out), 1)   # ~(bs, enc_size + hidden_size)
-        out = torch.tanh((self.post_concat(tmp_out)))  # ~(bs, hidden_size)
+        dec_out = dec_out.squeeze(1)                       # ~(bs, hidden_size)
+        dec_out = torch.cat((enc_outs, dec_out), 1)        # ~(bs, enc_size + hidden_size)
+        dec_out = torch.tanh((self.post_concat(dec_out)))  # ~(bs, hidden_size)
 
         # get probability distribution over vocab size
-        out = self.output(out)  # ~(bs, vocab_size)
-        out /= self.alpha  # divide by Boltzmann Temperature term before applying softmax
+        dec_out = self.output(dec_out)  # ~(bs, vocab_size)
+        dec_out /= self.alpha  # divide by Boltzmann Temperature term before applying softmax
 
-        return out, h_t, attn_weights
+        return dec_out, h_t, attn_weights
 
 
 default_params = {

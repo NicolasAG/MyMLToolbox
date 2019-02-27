@@ -926,8 +926,8 @@ class AttentionModule(nn.Module):
 
     def forward(self, h_t, outs):
         """
-        :param h_t: hidden state of the decoder ~(bs, dec_seq=1, dec_size)
-        :param outs: output vectors of the encoder ~(bs, enc_seq, enc_size)
+        :param h_t: hidden state of the decoder ~(bs, dec_len=1, dec_size)
+        :param outs: output vectors of the encoder ~(bs, max_src_len, n_dir*enc_size)
         :return attention weights: ~(bs, dec_seq=1, enc_seq)
         """
 
