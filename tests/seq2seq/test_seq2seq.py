@@ -20,6 +20,7 @@ import random
 import pickle as pkl
 import os
 import time
+from nltk import sent_tokenize
 
 import sys
 sys.path.append('../../..')
@@ -174,6 +175,43 @@ def process_one_batch(encoder, decoder, batch, corpus, optimizer=None, beam_size
     return loss.item(), predictions, decoder_attentions
 
 
+def load_data(path, corpus):
+
+    # check if data has been preprocessed before
+    src, tgt = corpus.already_preprocessed(path)
+
+    if len(src) > 0:
+        return src, tgt
+
+    # count number of lines
+    f = open(path, 'r')
+    num_lines = sum(1 for _ in f)
+    print("%d lines" % num_lines)
+    f.close()
+
+    # get a list of list of strings
+    data_list = []
+    with open(path, 'r') as f:
+        for line in f:
+            # skip empty lines
+            if len(line.strip().split()) == 0:
+                continue
+
+            # Process BPE this line
+            if corpus.bpe is not None:
+                line = corpus.bpe.process_line(line)
+
+            sentences = sent_tokenize(line)  # list of sentences in this line
+            data_list.append(sentences)
+
+    src, tgt = corpus.get_hreddata_from_array(data_list, max_context_size=1, debug=True)
+
+    # save it for later
+    corpus.save_preprocessed_data(path, src, tgt)
+
+    return src, tgt
+
+
 def main():
     # Hyper-parameters...
     batch_size = 8
@@ -187,8 +225,8 @@ def main():
     print("\nLoading data...")
     corpus = Corpus()
     corpus.learn_bpe('../train_data.txt', '../bpe10', 10)
-    train_src, train_tgt = corpus.get_data_from_lines('../train_data.txt', max_context_size=1, debug=True)
-    test_src, test_tgt = corpus.get_data_from_lines('../test_data.txt', max_context_size=1, debug=True)
+    train_src, train_tgt = load_data('../train_data.txt', corpus)
+    test_src, test_tgt = load_data('../test_data.txt', corpus)
     # make sure source and target have the same number of examples
     assert len(train_src) == len(train_tgt)
     assert len(test_src) == len(test_tgt)

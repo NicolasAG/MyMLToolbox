@@ -361,8 +361,8 @@ class Corpus(object):
         self.bpe = BPE(codes)
         codes.close()
 
-    def already_preprocessed(self, path, max_n_examples, max_context_size, max_seq_length,
-                             reverse_tgt, add_to_dict):
+    def already_preprocessed(self, path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
+                             reverse_tgt=False, add_to_dict=True):
         """
         Check if data was already preprocessed with these specific arguments.
         If so, return it, else,  return empty list
@@ -409,7 +409,7 @@ class Corpus(object):
 
         return [], []
 
-    def save_preprocessed_data(self, path, max_context_size, max_seq_length, reverse_tgt, src, tgt):
+    def save_preprocessed_data(self, path, src, tgt, max_context_size=-1, max_seq_length=-1, reverse_tgt=False):
         """
         save preprocessed data
         """
@@ -433,11 +433,11 @@ class Corpus(object):
                 print('tgt:', tgt_ex)
                 print('')
 
-    def get_data_from_lines(self, path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
-                            reverse_tgt=False, debug=False, add_to_dict=True):
+    def get_hreddata_from_array(self, data_list, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
+                                reverse_tgt=False, debug=False, add_to_dict=True):
         """
-        Reads an input file where each line is considered as one conversation with more than one sentence.
-        :param path: path to a readable file
+        Reads a list of elements where each element is a list of sentences
+        :param data_list: list of list of strings
         :param max_n_examples: consider top examples
         :param max_context_size: number of sentences to keep in the context
         :param max_seq_length: max number of tokens in one sequence
@@ -446,183 +446,16 @@ class Corpus(object):
         :param add_to_dict: add words to dictionary
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
-        # check if data has been preprocessed before
-        src, tgt = self.already_preprocessed(path, max_n_examples, max_context_size,
-                                             max_seq_length, reverse_tgt, add_to_dict)
-
-        if len(src) > 0:
-            return src, tgt
-
-        # else:
-        # src = []  # list of contexts
-        # tgt = []  # list of next sentences
+        src, tgt = [], []  # list of contexts & next sentences
 
         truncated_src = 0  # number of truncated source sequences
         truncated_tgt = 0  # number of truncated target sequences
         src_tokens_lost = 0  # number of tokens removed after truncation
         tgt_tokens_lost = 0  # number of tokens removed after truncation
-
-        f = open(path, 'r')
-        num_lines = sum(1 for _ in f)
-        print("%d lines" % num_lines)
-        f.close()
-
-        with open(path, 'r') as f:
-            examples_done = 0
-            for line in f:
-
-                # skip empty lines
-                if len(line.strip().split()) == 0:
-                    continue
-
-                # Process BPE this line
-                if self.bpe is not None:
-                    line = self.bpe.process_line(line)
-
-                sentences = sent_tokenize(line)  # list of sentences in this line
-
-                start = 0  # index of the first sentences to keep in the `src`
-                # for all sentences except the last one, make a (src - tgt) pair
-                for s_id in range(len(sentences) - 1):
-                    if max_context_size > 0:
-                        sentences_to_consider = sentences[start: s_id + 1]
-                        # move pointer to the right when `src` reached its max capacity
-                        if len(sentences_to_consider) == max_context_size:
-                            start += 1  # sliding window ->->
-                    else:
-                        # take all sentences before i+1 as src
-                        sentences_to_consider = sentences[:s_id+1]
-
-                    # lowercase, strip, to ascii
-                    src_sents = normalize_string(
-                        (' ' + self.eos_tag + ' ' + self.sos_tag + ' ').join(sentences_to_consider)
-                    )
-                    tgt_sent = normalize_string(sentences[s_id+1])
-
-                    # list of words in the source sentences
-                    src_words = [self.sos_tag] + word_tokenize(src_sents) + [self.eos_tag]
-                    src_words = undo_word_tokenizer(src_words, self.sos_tag)
-                    src_words = undo_word_tokenizer(src_words, self.unk_tag)
-                    src_words = undo_word_tokenizer(src_words, self.eos_tag)
-                    if self.bpe is not None:
-                        src_words = put_back_bpe_separator(src_words, self.bpe.separator)
-
-                    # truncate if too long
-                    if 0 < max_seq_length < len(src_words):
-                        src_tokens_lost += len(src_words) - max_seq_length
-                        # truncate source sentence at the beginning
-                        src_words = [self.sos_tag] + src_words[-(max_seq_length-1):]
-                        truncated_src += 1
-
-                    # list of words in the target sentence
-                    tgt_words = [self.sos_tag] + word_tokenize(tgt_sent) + [self.eos_tag]
-                    tgt_words = undo_word_tokenizer(tgt_words, self.sos_tag)
-                    tgt_words = undo_word_tokenizer(tgt_words, self.unk_tag)
-                    tgt_words = undo_word_tokenizer(tgt_words, self.eos_tag)
-                    if self.bpe is not None:
-                        tgt_words = put_back_bpe_separator(tgt_words, self.bpe.separator)
-
-                    # truncate if too long
-                    if 0 < max_seq_length < len(tgt_words):
-                        tgt_tokens_lost += len(tgt_words) - max_seq_length
-                        # truncate target sentence at the tail
-                        tgt_words = tgt_words[:(max_seq_length-1)] + [self.eos_tag]
-                        truncated_tgt += 1
-
-                    # add words to dictionary
-                    if add_to_dict:
-                        # always add words of the tgt sentences
-                        for word in tgt_words:
-                            self.dictionary.add_word(word)
-                        # only add words of the first src sentence
-                        if s_id == 0:
-                            for word in src_words:
-                                self.dictionary.add_word(word)
-
-                    if reverse_tgt:
-                        tgt_words = tgt_words[::-1]
-
-                    src.append(' '.join(src_words))
-                    tgt.append(' '.join(tgt_words))
-
-                    # bar.update()
-                    examples_done += 1
-                    if examples_done % 10000 == 0:
-                        print("#", end='')
-
-                    if 0 < max_n_examples <= len(src):
-                        break
-
-                if 0 < max_n_examples <= len(src):
-                    break
-
-            print("")
-
-        if debug:
-            self.print_few_examples(src, tgt)
-
-        if truncated_src > 0:
-            print("Truncated %d (%d) / %d = %4f source sentences" % (
-                truncated_src, src_tokens_lost, len(src), truncated_src / len(src)
-            ))
-        if truncated_tgt > 0:
-            print("Truncated %d (%d) / %d = %4f target sentences" % (
-                truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
-            ))
-
-        self.save_preprocessed_data(path, max_context_size, max_seq_length, reverse_tgt, src, tgt)
-
-        return src, tgt
-
-    def get_data_from_array(self, json_path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
-                            reverse_tgt=False, debug=False, add_to_dict=True):
-        """
-        Reads an array where each item is considered as one story with sentences splitted by \n.
-        :param json_path: path to a json file
-        :param max_n_examples: consider top examples
-        :param max_context_size: number of sentences to keep in the context
-        :param max_seq_length: max number of tokens in one sequence
-        :param reverse_tgt: reverse tokens of the tgt sequence
-        :param debug: print a few item examples
-        :param add_to_dict: add words to dictionary
-        :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
-        """
-        # check if data has been preprocessed before
-        src, tgt = self.already_preprocessed(json_path, max_n_examples, max_context_size,
-                                             max_seq_length, reverse_tgt, add_to_dict)
-
-        if len(src) > 0:
-            return src, tgt
-
-        # else:
-        # src = []  # list of contexts
-        # tgt = []  # list of next sentences
-
-        truncated_src = 0  # number of truncated source sequences
-        truncated_tgt = 0  # number of truncated target sequences
-        src_tokens_lost = 0  # number of tokens removed after truncation
-        tgt_tokens_lost = 0  # number of tokens removed after truncation
-
-        f = open(json_path, 'r')
-        array = json.load(f)
-        f.close()
-
-        print("%d items" % len(array))
 
         examples_done = 0
 
-        for item in array:
-
-            # skip empty items
-            if len(item.strip().split()) == 0:
-                continue
-
-            sentences = item.split('\n')  # list of sentences in this item
-
-            # Process BPE every sentence
-            if self.bpe is not None:
-                for i, sent in enumerate(sentences):
-                    sentences[i] = self.bpe.process_line(sent)
+        for sentences in data_list:
 
             start = 0  # index of the first sentences to keep in the `src`
             # for all sentences except the last one, make a (src - tgt) pair
@@ -634,15 +467,15 @@ class Corpus(object):
                         start += 1  # sliding window ->->
                 else:
                     # take all sentences before i+1 as src
-                    sentences_to_consider = sentences[:s_id+1]
+                    sentences_to_consider = sentences[:s_id + 1]
 
                 # lowercase, strip, to ascii
                 src_sents = normalize_string(
                     (' ' + self.eos_tag + ' ' + self.sos_tag + ' ').join(sentences_to_consider)
                 )
-                tgt_sent = normalize_string(sentences[s_id+1])
+                tgt_sent = normalize_string(sentences[s_id + 1])
 
-                # list of words in the source sentences
+                # list of words in the source sentence
                 src_words = [self.sos_tag] + word_tokenize(src_sents) + [self.eos_tag]
                 src_words = undo_word_tokenizer(src_words, self.sos_tag)
                 src_words = undo_word_tokenizer(src_words, self.unk_tag)
@@ -654,7 +487,7 @@ class Corpus(object):
                 if 0 < max_seq_length < len(src_words):
                     src_tokens_lost += len(src_words) - max_seq_length
                     # truncate source sentence at the beginning
-                    src_words = [self.sos_tag] + src_words[-(max_seq_length-1):]
+                    src_words = [self.sos_tag] + src_words[-(max_seq_length - 1):]
                     truncated_src += 1
 
                 # list of words in the target sentences
@@ -669,7 +502,7 @@ class Corpus(object):
                 if 0 < max_seq_length < len(tgt_words):
                     tgt_tokens_lost += len(tgt_words) - max_seq_length
                     # truncate target sentence at the tail
-                    tgt_words = tgt_words[:(max_seq_length-1)] + [self.eos_tag]
+                    tgt_words = tgt_words[:(max_seq_length - 1)] + [self.eos_tag]
                     truncated_tgt += 1
 
                 # add words to dictionary
@@ -712,7 +545,105 @@ class Corpus(object):
                 truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
             ))
 
-        self.save_preprocessed_data(json_path, max_context_size, max_seq_length, reverse_tgt, src, tgt)
+        return src, tgt
+    '''
+    def get_data_from_lines(self, path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
+                            reverse_tgt=False, debug=False, add_to_dict=True):
+        """
+        Reads an input file where each line is considered as one conversation with more than one sentence.
+        :param path: path to a readable file
+        :param max_n_examples: consider top examples
+        :param max_context_size: number of sentences to keep in the context
+        :param max_seq_length: max number of tokens in one sequence
+        :param reverse_tgt: reverse tokens of the tgt sequence
+        :param debug: print a few item examples
+        :param add_to_dict: add words to dictionary
+        :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
+        """
+        # check if data has been preprocessed before
+        src, tgt = self.already_preprocessed(path, max_n_examples, max_context_size,
+                                             max_seq_length, reverse_tgt, add_to_dict)
+
+        if len(src) > 0:
+            return src, tgt
+
+        f = open(path, 'r')
+        num_lines = sum(1 for _ in f)
+        print("%d lines" % num_lines)
+        f.close()
+
+        data_list = []
+
+        with open(path, 'r') as f:
+
+            for line in f:
+
+                # skip empty lines
+                if len(line.strip().split()) == 0:
+                    continue
+
+                # Process BPE this line
+                if self.bpe is not None:
+                    line = self.bpe.process_line(line)
+
+                sentences = sent_tokenize(line)  # list of sentences in this line
+                data_list.append(sentences)
+
+        src, tgt = self.get_hreddata_from_array(data_list, max_n_examples, max_context_size, max_seq_length,
+                                                reverse_tgt, debug, add_to_dict)
+
+        self.save_preprocessed_data(path, src, tgt, max_context_size, max_seq_length, reverse_tgt)
+
+        return src, tgt
+    '''
+
+    def get_data_from_array(self, json_path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
+                            reverse_tgt=False, debug=False, add_to_dict=True):
+        """
+        Reads an array where each item is considered as one story with sentences splitted by \n.
+        :param json_path: path to a json file
+        :param max_n_examples: consider top examples
+        :param max_context_size: number of sentences to keep in the context
+        :param max_seq_length: max number of tokens in one sequence
+        :param reverse_tgt: reverse tokens of the tgt sequence
+        :param debug: print a few item examples
+        :param add_to_dict: add words to dictionary
+        :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
+        """
+        # check if data has been preprocessed before
+        src, tgt = self.already_preprocessed(json_path, max_n_examples, max_context_size,
+                                             max_seq_length, reverse_tgt, add_to_dict)
+
+        if len(src) > 0:
+            return src, tgt
+
+        f = open(json_path, 'r')
+        array = json.load(f)
+        f.close()
+
+        print("%d items" % len(array))
+
+        data_list = []
+
+        for item in array:
+
+            # skip empty items
+            if len(item.strip().split()) == 0:
+                continue
+
+            sentences = item.split('\n')  # list of sentences in this item
+
+            # Process BPE every sentence
+            if self.bpe is not None:
+                for i, sent in enumerate(sentences):
+                    sentences[i] = self.bpe.process_line(sent)
+
+            data_list.append(sentences)
+
+        src, tgt = self.get_hreddata_from_array(data_list, max_n_examples, max_context_size, max_seq_length,
+                                                reverse_tgt, debug, add_to_dict)
+
+        self.save_preprocessed_data(json_path, src, tgt, max_context_size, max_seq_length, reverse_tgt)
 
         return src, tgt
 
@@ -839,7 +770,7 @@ class Corpus(object):
                 truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
             ))
 
-        self.save_preprocessed_data(json_path, -1, max_seq_length, 0, src, tgt)
+        self.save_preprocessed_data(json_path, src, tgt, max_seq_length=max_seq_length)
 
         return src, tgt
 
