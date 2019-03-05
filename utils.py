@@ -597,6 +597,7 @@ class Corpus(object):
         return src, tgt
     '''
 
+    '''
     def get_data_from_array(self, json_path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
                             reverse_tgt=False, debug=False, add_to_dict=True):
         """
@@ -646,6 +647,7 @@ class Corpus(object):
         self.save_preprocessed_data(json_path, src, tgt, max_context_size, max_seq_length, reverse_tgt)
 
         return src, tgt
+    '''
 
     def get_copydata_from_array(self, json_path, max_n_examples=-1, max_seq_length=-1,
                                 debug=False, add_to_dict=True):
@@ -663,7 +665,8 @@ class Corpus(object):
                                              max_n_examples=max_n_examples,
                                              max_context_size=-1,
                                              max_seq_length=max_seq_length,
-                                             reverse_tgt=0, add_to_dict=add_to_dict)
+                                             reverse_tgt=False,
+                                             add_to_dict=add_to_dict)
 
         if len(src) > 0:
             return src, tgt
