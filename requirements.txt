@@ -2,4 +2,4 @@ h5py
 comet_ml
 gensim
 scikit-learn
-nltk.punck
+nltk

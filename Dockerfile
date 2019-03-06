@@ -9,9 +9,12 @@ RUN conda create --name py37myMLtoolbox --file /env/conda-env.txt
 # so add the environment path to the PATH
 ENV PATH /opt/conda/envs/py37myMLtoolbox/bin:$PATH
 
-# comet_ml is not supported by conda so add it manually
-RUN pip install comet_ml
 
-# install external libraries from MyMLtoolbox/external/
-#ADD external/dowload_externals.sh /external/dowload_externals.sh
-#RUN cd /external/ && ./dowload_externals.sh
+# copy current repository
+COPY . /code/MyMLToolbox
+
+# install dependencies
+RUN pip install -r /code/MyMLToolbox/requirements.txt
+
+# clone the models
+RUN cd /code/MyMLToolbox/external && ./setup.sh
