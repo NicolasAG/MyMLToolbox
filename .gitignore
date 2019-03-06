@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 *.pt
 *.pkl
+external/subword_nmt
