@@ -209,10 +209,27 @@ def process_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
 def load_data(path, corpus):
 
     # check if data has been preprocessed before
-    src, tgt = corpus.already_preprocessed(path)
+    data = corpus.already_preprocessed(path)
 
-    if len(src) > 0:
-        return src, tgt
+    if data is not None:
+        src, tgt = data
+
+        # add words to dictionary
+        # add all words in the source sentence
+        for src_words in src:
+            for word in src_words.split():
+                corpus.dictionary.add_word(word)
+        # add all words in the target sentence
+        for tgt_words in tgt:
+            for word in tgt_words.split():
+                corpus.dictionary.add_word(word)
+
+        print("previously processed data has only %d examples" % len(src))
+        print("this experiment asked for -1 examples")
+        reprocess_data = input("reprocess data (yes): ")
+        if reprocess_data.lower() in ['n', 'no', '0']:
+            print("ok, working with %d examples then..." % len(src))
+            return src, tgt
 
     # count number of lines
     f = open(path, 'r')
@@ -234,7 +251,7 @@ def load_data(path, corpus):
     src, tgt = corpus.get_hreddata_from_array(data_list, debug=True)
 
     # save it for later
-    corpus.save_preprocessed_data(path, src, tgt)
+    corpus.save_preprocessed_data(path, (src, tgt))
 
     return src, tgt
 
@@ -242,7 +259,7 @@ def load_data(path, corpus):
 def main():
     # Hyper-parameters...
     batch_size = 8
-    max_epoch = 50
+    max_epoch = 20
     log_interval = 1  # lo stats every k batch
     show_attention_interval = -1
 

@@ -361,17 +361,17 @@ class Corpus(object):
         self.bpe = BPE(codes)
         codes.close()
 
-    def already_preprocessed(self, path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
-                             reverse_tgt=False, add_to_dict=True):
+    def already_preprocessed(self, path, max_context_size=-1, max_seq_length=-1,
+                             reverse_tgt=False):
         """
         Check if data was already preprocessed with these specific arguments.
         If so, return it, else,  return empty list
         :param path: prefix to a preprocessed file
-        :param max_n_examples: consider top k examples
+        :param max_n_examples: consider top k examples - default -1
         :param max_context_size: number of sentences to keep in the context
         :param max_seq_length: max number of tokens in one sequence
         :param reverse_tgt: reverse tokens of the tgt sequence
-        :param add_to_dict: add words to dictionary
+        :param add_to_dict: add words to dictionary - default True
         """
         # check if data has been preprocessed before
         if os.path.isfile(path + '.preprocessed-mcs%d-msl%d-rt%d-bpe%d.pkl' % (
@@ -380,9 +380,11 @@ class Corpus(object):
             with open(path + '.preprocessed-mcs%d-msl%d-rt%d-bpe%d.pkl' % (
                     max_context_size, max_seq_length, reverse_tgt, self.bpe is not None
             ), 'rb') as f:
-                src, tgt = pkl.load(f)
-            assert len(src) == len(tgt)
-
+                # src, tgt = pkl.load(f)
+                data = pkl.load(f)
+            # assert len(src) == len(tgt)
+            return data
+            '''
             # add words to dictionary
             if add_to_dict:
                 # add all words in the source sentence
@@ -406,17 +408,19 @@ class Corpus(object):
                 if reprocess_data.lower() in ['n', 'no', '0']:
                     print("ok, working with %d examples then..." % len(src))
                     return src, tgt
+            '''
 
-        return [], []
+        # return [], []
+        return None
 
-    def save_preprocessed_data(self, path, src, tgt, max_context_size=-1, max_seq_length=-1, reverse_tgt=False):
+    def save_preprocessed_data(self, path, data, max_context_size=-1, max_seq_length=-1, reverse_tgt=False):
         """
         save preprocessed data
         """
         with open(path + '.preprocessed-mcs%d-msl%d-rt%d-bpe%d.pkl' % (
                 max_context_size, max_seq_length, reverse_tgt, self.bpe is not None
         ), 'wb') as f:
-            pkl.dump((src, tgt), f, pkl.HIGHEST_PROTOCOL)
+            pkl.dump(data, f, pkl.HIGHEST_PROTOCOL)
 
     @staticmethod
     def print_few_examples(src, tgt):
@@ -644,11 +648,34 @@ class Corpus(object):
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
         # check if data has been preprocessed before
-        src, tgt = self.already_preprocessed(path, max_n_examples, max_context_size,
+        data = self.already_preprocessed(path, max_n_examples, max_context_size,
                                              max_seq_length, reverse_tgt, add_to_dict)
-
-        if len(src) > 0:
-            return src, tgt
+        if data is not None:
+            src, tgt = data
+            
+            # add words to dictionary
+            if add_to_dict:
+                # add all words in the source sentence
+                for src_words in src:
+                    for word in src_words.split():
+                        self.dictionary.add_word(word)
+                # add all words in the target sentence
+                for tgt_words in tgt:
+                    for word in tgt_words.split():
+                        self.dictionary.add_word(word)
+    
+            # remove extra examples if needed
+            if 0 < max_n_examples <= len(src):
+                src = src[:max_n_examples]
+                tgt = tgt[:max_n_examples]
+                return src, tgt
+            else:
+                print("previously processed data has only %d examples" % len(src))
+                print("this experiment asked for %d examples" % max_n_examples)
+                reprocess_data = input("reprocess data (yes): ")
+                if reprocess_data.lower() in ['n', 'no', '0']:
+                    print("ok, working with %d examples then..." % len(src))
+                    return src, tgt
 
         f = open(path, 'r')
         num_lines = sum(1 for _ in f)
@@ -675,7 +702,7 @@ class Corpus(object):
         src, tgt = self.get_hreddata_from_array(data_list, max_n_examples, max_context_size, max_seq_length,
                                                 reverse_tgt, debug, add_to_dict)
 
-        self.save_preprocessed_data(path, src, tgt, max_context_size, max_seq_length, reverse_tgt)
+        self.save_preprocessed_data(path, (src, tgt), max_context_size, max_seq_length, reverse_tgt)
 
         return src, tgt
     '''
@@ -695,11 +722,34 @@ class Corpus(object):
         :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
         """
         # check if data has been preprocessed before
-        src, tgt = self.already_preprocessed(json_path, max_n_examples, max_context_size,
+        data = self.already_preprocessed(json_path, max_n_examples, max_context_size,
                                              max_seq_length, reverse_tgt, add_to_dict)
-
-        if len(src) > 0:
-            return src, tgt
+        if data is not None:
+            src, tgt = data
+            
+            # add words to dictionary
+            if add_to_dict:
+                # add all words in the source sentence
+                for src_words in src:
+                    for word in src_words.split():
+                        self.dictionary.add_word(word)
+                # add all words in the target sentence
+                for tgt_words in tgt:
+                    for word in tgt_words.split():
+                        self.dictionary.add_word(word)
+    
+            # remove extra examples if needed
+            if 0 < max_n_examples <= len(src):
+                src = src[:max_n_examples]
+                tgt = tgt[:max_n_examples]
+                return src, tgt
+            else:
+                print("previously processed data has only %d examples" % len(src))
+                print("this experiment asked for %d examples" % max_n_examples)
+                reprocess_data = input("reprocess data (yes): ")
+                if reprocess_data.lower() in ['n', 'no', '0']:
+                    print("ok, working with %d examples then..." % len(src))
+                    return src, tgt
 
         f = open(json_path, 'r')
         array = json.load(f)
@@ -727,7 +777,7 @@ class Corpus(object):
         src, tgt = self.get_hreddata_from_array(data_list, max_n_examples, max_context_size, max_seq_length,
                                                 reverse_tgt, debug, add_to_dict)
 
-        self.save_preprocessed_data(json_path, src, tgt, max_context_size, max_seq_length, reverse_tgt)
+        self.save_preprocessed_data(json_path, (src, tgt), max_context_size, max_seq_length, reverse_tgt)
 
         return src, tgt
     '''
@@ -744,19 +794,42 @@ class Corpus(object):
         :return: list of (src, tgt) pairs where src and tgt are the same sentence
         """
         # check if data has been preprocessed before
-        src, tgt = self.already_preprocessed(json_path,
+        data = self.already_preprocessed(json_path,
                                              max_n_examples=max_n_examples,
                                              max_context_size=-1,
                                              max_seq_length=max_seq_length,
                                              reverse_tgt=False,
                                              add_to_dict=add_to_dict)
+        if data is not None:
+            src, tgt = data
 
-        if len(src) > 0:
-            return src, tgt
+            # add words to dictionary
+            if add_to_dict:
+                # add all words in the source sentence
+                for src_words in src:
+                    for word in src_words.split():
+                        self.dictionary.add_word(word)
+                # add all words in the target sentence
+                for tgt_words in tgt:
+                    for word in tgt_words.split():
+                        self.dictionary.add_word(word)
+
+            # remove extra examples if needed
+            if 0 < max_n_examples <= len(src):
+                src = src[:max_n_examples]
+                tgt = tgt[:max_n_examples]
+                return src, tgt
+            else:
+                print("previously processed data has only %d examples" % len(src))
+                print("this experiment asked for %d examples" % max_n_examples)
+                reprocess_data = input("reprocess data (yes): ")
+                if reprocess_data.lower() in ['n', 'no', '0']:
+                    print("ok, working with %d examples then..." % len(src))
+                    return src, tgt
 
         # else:
-        # src = []  # list of contexts
-        # tgt = []  # list of next sentences
+        src = []  # list of contexts
+        tgt = []  # list of next sentences
 
         truncated_src = 0  # number of truncated source sequences
         truncated_tgt = 0  # number of truncated target sequences
@@ -856,7 +929,7 @@ class Corpus(object):
                 truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
             ))
 
-        self.save_preprocessed_data(json_path, src, tgt, max_seq_length=max_seq_length)
+        self.save_preprocessed_data(json_path, (src, tgt), max_seq_length=max_seq_length)
 
         return src, tgt
 
