@@ -228,10 +228,6 @@ def load_data(path, corpus):
             if len(line.strip().split()) == 0:
                 continue
 
-            # Process BPE this line
-            if corpus.bpe is not None:
-                line = corpus.bpe.process_line(line)
-
             sentences = sent_tokenize(line)  # list of sentences in this line
             data_list.append(sentences)
 

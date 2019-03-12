@@ -433,6 +433,56 @@ class Corpus(object):
                 print('tgt:', tgt_ex)
                 print('')
 
+    def preprocess_sentence(self, sentence, add_to_dict,
+                            max_seq_length, truncate_at_tail=True,
+                            reverse_tokens=False, bpe=True):
+        """
+        Pre-process a string sentence (BPE, word tokenize, normalize, truncate, add to dict, ...)
+        :param sentence: the string to process
+        :param add_to_dict: add tokens to vocabulary
+        :param max_seq_length: maximum number of tokens
+        :param truncate_at_tail: keep the beginning and ignore the end of the sentence
+        :param reverse_tokens: reverse the order of the tokens
+        :param bpe: perform BPE if possible
+        :return: processed sentence, number of ignored tokens
+        """
+        if bpe and self.bpe is not None:
+            sentence = self.bpe.process_line(sentence)
+
+        # lowercase, strip, to ascii
+        sentence = normalize_string(sentence)
+
+        # list of words in the sentence
+        tokens = [self.sos_tag] + word_tokenize(sentence) + [self.eos_tag]
+        tokens = undo_word_tokenizer(tokens, self.sos_tag)
+        tokens = undo_word_tokenizer(tokens, self.unk_tag)
+        tokens = undo_word_tokenizer(tokens, self.eos_tag)
+        if self.bpe is not None:
+            tokens = put_back_bpe_separator(tokens, self.bpe.separator)
+
+        # truncate if too long
+        if 0 < max_seq_length < len(tokens):
+            tokens_lost = len(tokens) - max_seq_length
+            if truncate_at_tail:
+                # truncate sentence at the tail
+                tokens = tokens[:(max_seq_length - 1)] + [self.eos_tag]
+            else:
+                # truncate sentence at the beginning
+                tokens = [self.sos_tag] + tokens[-(max_seq_length - 1):]
+        else:
+            tokens_lost = 0
+
+        # add words to dictionary
+        if add_to_dict:
+            # always add words of the tgt sentences
+            for word in tokens:
+                self.dictionary.add_word(word)
+
+        if reverse_tokens:
+            tokens = tokens[::-1]
+
+        return ' '.join(tokens), tokens_lost
+
     def get_hreddata_from_array(self, data_list, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
                                 reverse_tgt=False, debug=False, add_to_dict=True):
         """
@@ -469,6 +519,36 @@ class Corpus(object):
                     # take all sentences before i+1 as src
                     sentences_to_consider = sentences[:s_id + 1]
 
+                # perform BPE in advance for source sentences due to ' <eos> <sos> '.join()
+                if self.bpe is not None:
+                    for i, sent in enumerate(sentences_to_consider):
+                        sentences_to_consider[i] = self.bpe.process_line(sent)
+                # process source sentences
+                processed_src, tokens_lost = self.preprocess_sentence(
+                    (' ' + self.eos_tag + ' ' + self.sos_tag + ' ').join(sentences_to_consider),
+                    add_to_dict=add_to_dict,
+                    max_seq_length=max_seq_length,
+                    truncate_at_tail=False,  # ignore the beginning of the sentence & keep the end
+                    reverse_tokens=False,
+                    bpe=False  # do not perform BPE again
+                )
+                if tokens_lost > 0:
+                    src_tokens_lost += tokens_lost
+                    truncated_src += 1
+
+                # process target sentence
+                processed_tgt, tokens_lost = self.preprocess_sentence(
+                    sentences[s_id + 1],
+                    add_to_dict=add_to_dict,
+                    max_seq_length=max_seq_length,
+                    truncate_at_tail=True,  # ignore the end of the sentence & keep the beginning
+                    reverse_tokens=reverse_tgt
+                )
+                if tokens_lost > 0:
+                    tgt_tokens_lost += tokens_lost
+                    truncated_tgt += 1
+
+                '''
                 # lowercase, strip, to ascii
                 src_sents = normalize_string(
                     (' ' + self.eos_tag + ' ' + self.sos_tag + ' ').join(sentences_to_consider)
@@ -520,6 +600,9 @@ class Corpus(object):
 
                 src.append(' '.join(src_words))
                 tgt.append(' '.join(tgt_words))
+                '''
+                src.append(processed_src)
+                tgt.append(processed_tgt)
 
                 examples_done += 1
                 if examples_done % 10000 == 0:
