@@ -361,8 +361,7 @@ class Corpus(object):
         self.bpe = BPE(codes)
         codes.close()
 
-    def already_preprocessed(self, path, max_context_size=-1, max_seq_length=-1,
-                             reverse_tgt=False):
+    def already_preprocessed(self, path, max_context_size=-1, max_seq_length=-1, reverse_tgt=False):
         """
         Check if data was already preprocessed with these specific arguments.
         If so, return it, else,  return empty list
@@ -423,7 +422,19 @@ class Corpus(object):
             pkl.dump(data, f, pkl.HIGHEST_PROTOCOL)
 
     @staticmethod
-    def print_few_examples(src, tgt):
+    def print_few_examples(data, prefix='sent'):
+        start1 = 0
+        start2 = 50
+        for sent in data[start1: start1+3]:
+            print('%s: %s' % (prefix, sent))
+            print('')
+        if len(data) > start2 + 3:
+            for sent in data[start2: start2 + 3]:
+                print('%s: %s' % (prefix, sent))
+                print('')
+
+    @staticmethod
+    def print_few_hred_examples(src, tgt):
         # print a few random examples
         start1 = 0
         start2 = 50
@@ -437,11 +448,10 @@ class Corpus(object):
                 print('tgt:', tgt_ex)
                 print('')
 
-    def preprocess_sentence(self, sentence, add_to_dict,
-                            max_seq_length, truncate_at_tail=True,
+    def preprocess_sentence(self, sentence, add_to_dict, max_seq_length, truncate_at_tail=True,
                             reverse_tokens=False, bpe=True):
         """
-        Pre-process a string sentence (BPE, word tokenize, normalize, truncate, add to dict, ...)
+        Pre-process a string sentence (BPE, word tokenize, normalize, truncate, add to dict...)
         :param sentence: the string to process
         :param add_to_dict: add tokens to vocabulary
         :param max_seq_length: maximum number of tokens
@@ -487,6 +497,55 @@ class Corpus(object):
 
         return ' '.join(tokens), tokens_lost
 
+    def get_data_from_sentences(self, data_list, max_n_examples=-1, max_seq_length=-1, truncate_at_tail=True,
+                                reverse_tokens=False, debug=False, add_to_dict=True):
+        """
+        Reads a list of sentences
+        :param data_list: list of sentences
+        :param max_n_examples: max number of sentences to return
+        :param max_seq_length: max number of tokens per sentence
+        :param truncate_at_tail: keep the beginning and ignore the end of the sentence
+        :param reverse_tokens: reverse sentence tokens
+        :param debug: print a few item examples
+        :param add_to_dict: add words to dictionary
+        :return: list of processed sentences
+        """
+        data = []
+        truncated_sent = 0  # number of truncated sentences
+        total_tokens_lost = 0     # number of tokens removed after truncation
+
+        for sent in data_list:
+            # process sentence
+            processed_sent, tokens_lost = self.preprocess_sentence(
+                sent,
+                add_to_dict=add_to_dict,
+                max_seq_length=max_seq_length,
+                truncate_at_tail=truncate_at_tail,
+                reverse_tokens=reverse_tokens
+            )
+            if tokens_lost > 0:
+                total_tokens_lost += tokens_lost
+                truncated_sent += 1
+
+            data.append(processed_sent)
+
+            if len(data) % 10000 == 0:
+                print("#", end='')
+
+            if 0 < max_n_examples < len(data):
+                break
+
+        print("")
+        if debug:
+            self.print_few_examples(data)
+
+        if truncated_sent > 0:
+            print("Truncated %d (%d) / %d = %4f sentences" % (
+                truncated_sent, total_tokens_lost, len(data), truncated_sent / len(data)
+            ))
+
+        return data
+
     def get_hreddata_from_array(self, data_list, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
                                 reverse_tgt=False, debug=False, add_to_dict=True):
         """
@@ -498,7 +557,7 @@ class Corpus(object):
         :param reverse_tgt: reverse tokens of the tgt sequence
         :param debug: print a few item examples
         :param add_to_dict: add words to dictionary
-        :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
+        :return: (src, tgt) pair where src is all possible contexts and tgt is all the next sentences
         """
         src, tgt = [], []  # list of contexts & next sentences
 
@@ -506,8 +565,6 @@ class Corpus(object):
         truncated_tgt = 0  # number of truncated target sequences
         src_tokens_lost = 0  # number of tokens removed after truncation
         tgt_tokens_lost = 0  # number of tokens removed after truncation
-
-        examples_done = 0
 
         for sentences in data_list:
 
@@ -608,8 +665,7 @@ class Corpus(object):
                 src.append(processed_src)
                 tgt.append(processed_tgt)
 
-                examples_done += 1
-                if examples_done % 10000 == 0:
+                if len(src) % 10000 == 0:
                     print("#", end='')
 
                 if 0 < max_n_examples <= len(src):
@@ -621,7 +677,7 @@ class Corpus(object):
         print("")
 
         if debug:
-            self.print_few_examples(src, tgt)
+            self.print_few_hred_examples(src, tgt)
 
         if truncated_src > 0:
             print("Truncated %d (%d) / %d = %4f source sentences" % (
@@ -633,6 +689,7 @@ class Corpus(object):
             ))
 
         return src, tgt
+
     '''
     def get_data_from_lines(self, path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
                             reverse_tgt=False, debug=False, add_to_dict=True):
@@ -794,12 +851,9 @@ class Corpus(object):
         :return: list of (src, tgt) pairs where src and tgt are the same sentence
         """
         # check if data has been preprocessed before
-        data = self.already_preprocessed(json_path,
-                                             max_n_examples=max_n_examples,
-                                             max_context_size=-1,
-                                             max_seq_length=max_seq_length,
-                                             reverse_tgt=False,
-                                             add_to_dict=add_to_dict)
+        data = self.already_preprocessed(
+            json_path, max_context_size=-1, max_seq_length=max_seq_length, reverse_tgt=False
+        )
         if data is not None:
             src, tgt = data
 
@@ -843,7 +897,6 @@ class Corpus(object):
 
         print("%d items" % len(array))
 
-        examples_done = 0
         for item in array:
 
             # skip empty items
@@ -905,8 +958,7 @@ class Corpus(object):
                 src.append(' '.join(src_words))
                 tgt.append(' '.join(tgt_words))
 
-                examples_done += 1
-                if examples_done % 10000 == 0:
+                if len(src) % 10000 == 0:
                     print("#", end='')
 
                 if 0 < max_n_examples <= len(src):
