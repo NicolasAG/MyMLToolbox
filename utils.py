@@ -128,7 +128,7 @@ def set_word_embeddings(embedding_layer, w2v, dictionary, requires_grad=True):
     set embedding layer of an rnn to a specific word2vec dictionary
     :param embedding_layer: torch.nn.Embedding layer
     :param w2v: mapping from word to vectors
-    :param corpus: Corpus object with Dictionary
+    :param dictionary: Dictionary object with str2idx & idx2str mapping
     :param requires_grad: fine-tune the embeddings
     """
 
@@ -350,8 +350,10 @@ class Corpus(object):
         # only learn BPE codes if they do no exist yet.
         if not os.path.isfile(output_prefix + '.codes'):
             print("Learning BPE codes...")
-            fin = codecs.open(input_file, mode='r', encoding='utf-8')
-            fout = codecs.open(output_prefix + '.codes', mode='w', encoding='utf-8')
+            #fin = codecs.open(input_file, mode='r', encoding='utf-8')
+            fin = open(input_file, mode='r', encoding='utf-8')
+            #fout = codecs.open(output_prefix + '.codes', mode='w', encoding='utf-8')
+            fout = open(output_prefix + '.codes', mode='w', encoding='utf-8')
             learn_bpe(fin, fout, target_size)
             fin.close()
             fout.close()
@@ -383,31 +385,6 @@ class Corpus(object):
                 data = pkl.load(f)
             # assert len(src) == len(tgt)
             return data
-            '''
-            # add words to dictionary
-            if add_to_dict:
-                # add all words in the source sentence
-                for src_words in src:
-                    for word in src_words.split():
-                        self.dictionary.add_word(word)
-                # add all words in the target sentence
-                for tgt_words in tgt:
-                    for word in tgt_words.split():
-                        self.dictionary.add_word(word)
-
-            # remove extra examples if needed
-            if 0 < max_n_examples <= len(src):
-                src = src[:max_n_examples]
-                tgt = tgt[:max_n_examples]
-                return src, tgt
-            else:
-                print("previously processed data has only %d examples" % len(src))
-                print("this experiment asked for %d examples" % max_n_examples)
-                reprocess_data = input("reprocess data (yes): ")
-                if reprocess_data.lower() in ['n', 'no', '0']:
-                    print("ok, working with %d examples then..." % len(src))
-                    return src, tgt
-            '''
 
         # return [], []
         return None
@@ -609,59 +586,6 @@ class Corpus(object):
                     tgt_tokens_lost += tokens_lost
                     truncated_tgt += 1
 
-                '''
-                # lowercase, strip, to ascii
-                src_sents = normalize_string(
-                    (' ' + self.eos_tag + ' ' + self.sos_tag + ' ').join(sentences_to_consider)
-                )
-                tgt_sent = normalize_string(sentences[s_id + 1])
-
-                # list of words in the source sentence
-                src_words = [self.sos_tag] + word_tokenize(src_sents) + [self.eos_tag]
-                src_words = undo_word_tokenizer(src_words, self.sos_tag)
-                src_words = undo_word_tokenizer(src_words, self.unk_tag)
-                src_words = undo_word_tokenizer(src_words, self.eos_tag)
-                if self.bpe is not None:
-                    src_words = put_back_bpe_separator(src_words, self.bpe.separator)
-
-                # truncate if too long
-                if 0 < max_seq_length < len(src_words):
-                    src_tokens_lost += len(src_words) - max_seq_length
-                    # truncate source sentence at the beginning
-                    src_words = [self.sos_tag] + src_words[-(max_seq_length - 1):]
-                    truncated_src += 1
-
-                # list of words in the target sentences
-                tgt_words = [self.sos_tag] + word_tokenize(tgt_sent) + [self.eos_tag]
-                tgt_words = undo_word_tokenizer(tgt_words, self.sos_tag)
-                tgt_words = undo_word_tokenizer(tgt_words, self.unk_tag)
-                tgt_words = undo_word_tokenizer(tgt_words, self.eos_tag)
-                if self.bpe is not None:
-                    tgt_words = put_back_bpe_separator(tgt_words, self.bpe.separator)
-
-                # truncate if too long
-                if 0 < max_seq_length < len(tgt_words):
-                    tgt_tokens_lost += len(tgt_words) - max_seq_length
-                    # truncate target sentence at the tail
-                    tgt_words = tgt_words[:(max_seq_length - 1)] + [self.eos_tag]
-                    truncated_tgt += 1
-
-                # add words to dictionary
-                if add_to_dict:
-                    # always add words of the tgt sentences
-                    for word in tgt_words:
-                        self.dictionary.add_word(word)
-                    # only add words of the first src sentence
-                    if s_id == 0:
-                        for word in src_words:
-                            self.dictionary.add_word(word)
-
-                if reverse_tgt:
-                    tgt_words = tgt_words[::-1]
-
-                src.append(' '.join(src_words))
-                tgt.append(' '.join(tgt_words))
-                '''
                 src.append(processed_src)
                 tgt.append(processed_tgt)
 
@@ -690,154 +614,6 @@ class Corpus(object):
 
         return src, tgt
 
-    '''
-    def get_data_from_lines(self, path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
-                            reverse_tgt=False, debug=False, add_to_dict=True):
-        """
-        Reads an input file where each line is considered as one conversation with more than one sentence.
-        :param path: path to a readable file
-        :param max_n_examples: consider top examples
-        :param max_context_size: number of sentences to keep in the context
-        :param max_seq_length: max number of tokens in one sequence
-        :param reverse_tgt: reverse tokens of the tgt sequence
-        :param debug: print a few item examples
-        :param add_to_dict: add words to dictionary
-        :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
-        """
-        # check if data has been preprocessed before
-        data = self.already_preprocessed(path, max_n_examples, max_context_size,
-                                             max_seq_length, reverse_tgt, add_to_dict)
-        if data is not None:
-            src, tgt = data
-            
-            # add words to dictionary
-            if add_to_dict:
-                # add all words in the source sentence
-                for src_words in src:
-                    for word in src_words.split():
-                        self.dictionary.add_word(word)
-                # add all words in the target sentence
-                for tgt_words in tgt:
-                    for word in tgt_words.split():
-                        self.dictionary.add_word(word)
-    
-            # remove extra examples if needed
-            if 0 < max_n_examples <= len(src):
-                src = src[:max_n_examples]
-                tgt = tgt[:max_n_examples]
-                return src, tgt
-            else:
-                print("previously processed data has only %d examples" % len(src))
-                print("this experiment asked for %d examples" % max_n_examples)
-                reprocess_data = input("reprocess data (yes): ")
-                if reprocess_data.lower() in ['n', 'no', '0']:
-                    print("ok, working with %d examples then..." % len(src))
-                    return src, tgt
-
-        f = open(path, 'r')
-        num_lines = sum(1 for _ in f)
-        print("%d lines" % num_lines)
-        f.close()
-
-        data_list = []
-
-        with open(path, 'r') as f:
-
-            for line in f:
-
-                # skip empty lines
-                if len(line.strip().split()) == 0:
-                    continue
-
-                # Process BPE this line
-                if self.bpe is not None:
-                    line = self.bpe.process_line(line)
-
-                sentences = sent_tokenize(line)  # list of sentences in this line
-                data_list.append(sentences)
-
-        src, tgt = self.get_hreddata_from_array(data_list, max_n_examples, max_context_size, max_seq_length,
-                                                reverse_tgt, debug, add_to_dict)
-
-        self.save_preprocessed_data(path, (src, tgt), max_context_size, max_seq_length, reverse_tgt)
-
-        return src, tgt
-    '''
-
-    '''
-    def get_data_from_array(self, json_path, max_n_examples=-1, max_context_size=-1, max_seq_length=-1,
-                            reverse_tgt=False, debug=False, add_to_dict=True):
-        """
-        Reads an array where each item is considered as one story with sentences splitted by \n.
-        :param json_path: path to a json file
-        :param max_n_examples: consider top examples
-        :param max_context_size: number of sentences to keep in the context
-        :param max_seq_length: max number of tokens in one sequence
-        :param reverse_tgt: reverse tokens of the tgt sequence
-        :param debug: print a few item examples
-        :param add_to_dict: add words to dictionary
-        :return: list of (src, tgt) pairs where src is all possible contexts and tgt is the next sentence
-        """
-        # check if data has been preprocessed before
-        data = self.already_preprocessed(json_path, max_n_examples, max_context_size,
-                                             max_seq_length, reverse_tgt, add_to_dict)
-        if data is not None:
-            src, tgt = data
-            
-            # add words to dictionary
-            if add_to_dict:
-                # add all words in the source sentence
-                for src_words in src:
-                    for word in src_words.split():
-                        self.dictionary.add_word(word)
-                # add all words in the target sentence
-                for tgt_words in tgt:
-                    for word in tgt_words.split():
-                        self.dictionary.add_word(word)
-    
-            # remove extra examples if needed
-            if 0 < max_n_examples <= len(src):
-                src = src[:max_n_examples]
-                tgt = tgt[:max_n_examples]
-                return src, tgt
-            else:
-                print("previously processed data has only %d examples" % len(src))
-                print("this experiment asked for %d examples" % max_n_examples)
-                reprocess_data = input("reprocess data (yes): ")
-                if reprocess_data.lower() in ['n', 'no', '0']:
-                    print("ok, working with %d examples then..." % len(src))
-                    return src, tgt
-
-        f = open(json_path, 'r')
-        array = json.load(f)
-        f.close()
-
-        print("%d items" % len(array))
-
-        data_list = []
-
-        for item in array:
-
-            # skip empty items
-            if len(item.strip().split()) == 0:
-                continue
-
-            sentences = item.split('\n')  # list of sentences in this item
-
-            # Process BPE every sentence
-            if self.bpe is not None:
-                for i, sent in enumerate(sentences):
-                    sentences[i] = self.bpe.process_line(sent)
-
-            data_list.append(sentences)
-
-        src, tgt = self.get_hreddata_from_array(data_list, max_n_examples, max_context_size, max_seq_length,
-                                                reverse_tgt, debug, add_to_dict)
-
-        self.save_preprocessed_data(json_path, (src, tgt), max_context_size, max_seq_length, reverse_tgt)
-
-        return src, tgt
-    '''
 
     def get_copydata_from_array(self, json_path, max_n_examples=-1, max_seq_length=-1,
                                 debug=False, add_to_dict=True):
