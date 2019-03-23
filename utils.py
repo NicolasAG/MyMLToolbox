@@ -891,6 +891,8 @@ class AttentionModule(nn.Module):
             grid = grid.permute(0, 2, 1)  # ~(bs, dec_seq=1, enc_seq)
 
             del tmp_h_t, concat
+        else:
+            raise NotImplementedError("Unknown attention method:", self.method)
 
         # grid is now of shape ~(bs, dec_seq=1, enc_seq)
 

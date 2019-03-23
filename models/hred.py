@@ -76,7 +76,6 @@ class HREDEncoder(nn.Module):
         packed = torch.nn.utils.rnn.pack_padded_sequence(x, sorted_lengths, batch_first=True)
 
         if self.rnn_type == 'lstm':
-
             out, (h_t, c_t) = self.rnn(packed, h_0)
             # unpack (back to padded)
             out, out_lengths = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True)
@@ -420,14 +419,16 @@ class AttentionDecoder(HREDDecoder):
     using the decoder's input and hidden state as inputs (see utils.AttentionModule).
     These are then multiplied by the encoder output vectors to create a weighted combination.
     """
-    def __init__(self, rnn_type, vocab_size, embedding_size, hidden_size, context_size,
-                 n_layers=1, dropout=0.1, attn_mode='general', alpha=1.0):
+    def __init__(self, rnn_type, vocab_size, embedding_size, hidden_size, encoder_size,
+                 context_size, n_layers=1, dropout=0.1, attn_mode='general', alpha=1.0):
         """
         :param rnn_type: 'lstm' or 'gru'
         :param vocab_size: number of tokens in vocabulary
         :param embedding_size: embedding size of all tokens
         :param hidden_size: size of RNN hidden state
-        :param context_size: size of the encoder outputs
+        :param encoder_size: size of the encoder outputs (used for computing attention weights)
+        :param context_size: size of the encoder outputs + extra info such as title encoding if needed
+                (used for passing context encoding & extra info to the hidden cell of the decoder)
         :param attn_mode: 'general', 'dot', or 'concat'
         :param alpha: Boltzmann Temperature term (set to 1 during training, change during inference)
         """
@@ -435,8 +436,8 @@ class AttentionDecoder(HREDDecoder):
             rnn_type, vocab_size, embedding_size, hidden_size, context_size, n_layers, dropout, alpha
         )
         # Attention decoder extra: attention layer & attention concatenation
-        self.attn = AttentionModule(hidden_size, context_size, attn_mode)
-        self.attn_enc_to_hid = nn.Linear(self.hidden_size + context_size, self.hidden_size)
+        self.attn = AttentionModule(hidden_size, encoder_size, attn_mode)
+        self.attn_enc_to_hid = nn.Linear(self.hidden_size + encoder_size, self.hidden_size)
 
     def forward(self, x, h_tm1, context, enc_outs):
         """
