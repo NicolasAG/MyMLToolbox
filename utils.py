@@ -10,6 +10,7 @@ import copy
 import math
 import json
 import codecs
+import logging
 import unicodedata
 import pickle as pkl
 
@@ -30,6 +31,9 @@ try:
     nltk.find('tokenizers/punkt')
 except LookupError:
     nltk.download('punkt')
+
+
+logger = logging.getLogger(__name__)
 
 
 def str2bool(v):
@@ -147,7 +151,7 @@ def set_word_embeddings(embedding_layer, w2v, dictionary, requires_grad=True):
         except KeyError:
             pass
 
-    print("Got %d/%d = %.6f pretrained embeddings" % (
+    logger.info("Got %d/%d = %.6f pretrained embeddings" % (
         count, len(dictionary), float(count) / len(dictionary)
     ))
 
@@ -308,7 +312,7 @@ class Dictionary(object):
             if c >= min_count and w not in self.required:
                 keep_words.append({'w': w, 'c': c})
 
-        print("keeping %d words from %d = %.4f" % (
+        logger.info("keeping %d words from %d = %.4f" % (
             len(keep_words), len(self.word2idx), len(keep_words) / len(self.word2idx)
         ))
 
@@ -349,7 +353,7 @@ class Corpus(object):
         """
         # only learn BPE codes if they do no exist yet.
         if not os.path.isfile(output_prefix + '.codes'):
-            print("Learning BPE codes...")
+            logger.info("Learning BPE codes...")
             #fin = codecs.open(input_file, mode='r', encoding='utf-8')
             fin = open(input_file, mode='r', encoding='utf-8')
             #fout = codecs.open(output_prefix + '.codes', mode='w', encoding='utf-8')
@@ -358,7 +362,7 @@ class Corpus(object):
             fin.close()
             fout.close()
 
-        print("Building BPE object...")
+        logger.info("Building BPE object...")
         codes = codecs.open(output_prefix + '.codes', mode='r', encoding='utf-8')
         self.bpe = BPE(codes)
         codes.close()
@@ -403,12 +407,12 @@ class Corpus(object):
         start1 = 0
         start2 = 50
         for sent in data[start1: start1+3]:
-            print('%s: %s' % (prefix, sent))
-            print('')
+            logger.info('%s: %s' % (prefix, sent))
+            logger.info('')
         if len(data) > start2 + 3:
             for sent in data[start2: start2 + 3]:
-                print('%s: %s' % (prefix, sent))
-                print('')
+                logger.info('%s: %s' % (prefix, sent))
+                logger.info('')
 
     @staticmethod
     def print_few_hred_examples(src, tgt):
@@ -416,14 +420,14 @@ class Corpus(object):
         start1 = 0
         start2 = 50
         for src_ex, tgt_ex in zip(src[start1: start1 + 3], tgt[start1: start1 + 3]):
-            print('src:', src_ex)
-            print('tgt:', tgt_ex)
-            print('')
+            logger.info('src: %s' % src_ex)
+            logger.info('tgt: %s' % tgt_ex)
+            logger.info('')
         if len(src) > start2 + 3:
             for src_ex, tgt_ex in zip(src[start2: start2 + 3], tgt[start2: start2 + 3]):
-                print('src:', src_ex)
-                print('tgt:', tgt_ex)
-                print('')
+                logger.info('src: %s' % src_ex)
+                logger.info('tgt: %s' % tgt_ex)
+                logger.info('')
 
     def preprocess_sentence(self, sentence, add_to_dict, max_seq_length, truncate_at_tail=True,
                             reverse_tokens=False, bpe=True):
@@ -512,12 +516,12 @@ class Corpus(object):
             if 0 < max_n_examples < len(data):
                 break
 
-        print("")
+        logger.info("")
         if debug:
             self.print_few_examples(data)
 
         if truncated_sent > 0:
-            print("Truncated %d (%d) / %d = %4f sentences" % (
+            logger.info("Truncated %d (%d) / %d = %4f sentences" % (
                 truncated_sent, total_tokens_lost, len(data), truncated_sent / len(data)
             ))
 
@@ -598,17 +602,17 @@ class Corpus(object):
             if 0 < max_n_examples <= len(src):
                 break
 
-        print("")
+        logger.info("")
 
         if debug:
             self.print_few_hred_examples(src, tgt)
 
         if truncated_src > 0:
-            print("Truncated %d (%d) / %d = %4f source sentences" % (
+            logger.info("Truncated %d (%d) / %d = %4f source sentences" % (
                 truncated_src, src_tokens_lost, len(src), truncated_src / len(src)
             ))
         if truncated_tgt > 0:
-            print("Truncated %d (%d) / %d = %4f target sentences" % (
+            logger.info("Truncated %d (%d) / %d = %4f target sentences" % (
                 truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
             ))
 
@@ -650,11 +654,11 @@ class Corpus(object):
                 tgt = tgt[:max_n_examples]
                 return src, tgt
             else:
-                print("previously processed data has only %d examples" % len(src))
-                print("this experiment asked for %d examples" % max_n_examples)
+                logger.info("previously processed data has only %d examples" % len(src))
+                logger.info("this experiment asked for %d examples" % max_n_examples)
                 reprocess_data = input("reprocess data (yes): ")
                 if reprocess_data.lower() in ['n', 'no', '0']:
-                    print("ok, working with %d examples then..." % len(src))
+                    logger.info("ok, working with %d examples then..." % len(src))
                     return src, tgt
 
         # else:
@@ -671,7 +675,7 @@ class Corpus(object):
         # f.close()
         array = json_path
 
-        print("%d items" % len(array))
+        logger.info("%d items" % len(array))
 
         for item in array:
 
@@ -743,17 +747,17 @@ class Corpus(object):
             if 0 < max_n_examples <= len(src):
                 break
 
-        print("")
+        logger.info("")
 
         if debug:
-            self.print_few_examples(src, tgt)
+            self.print_few_hred_examples(src, tgt)
 
         if truncated_src > 0:
-            print("Truncated %d (%d) / %d = %4f source sentences" % (
+            logger.info("Truncated %d (%d) / %d = %4f source sentences" % (
                 truncated_src, src_tokens_lost, len(src), truncated_src / len(src)
             ))
         if truncated_tgt > 0:
-            print("Truncated %d (%d) / %d = %4f target sentences" % (
+            logger.info("Truncated %d (%d) / %d = %4f target sentences" % (
                 truncated_tgt, tgt_tokens_lost, len(tgt), truncated_tgt / len(tgt)
             ))
 

@@ -16,6 +16,7 @@ https://github.com/placaille/nmt-comp550/tree/master/src
 import numpy as np
 import torch
 import random
+import logging
 import pickle as pkl
 import os
 import time
@@ -27,6 +28,15 @@ sys.path.append('../../..')
 from MyMLToolbox.utils import Dictionary, Corpus, set_gradient, masked_cross_entropy, show_attention
 from MyMLToolbox.beam_wrapper import BSWrapper
 from MyMLToolbox.models.hred import build_seq2seq, AttentionDecoder, seq2seq_minibatch_generator
+
+
+# SETUP LOGGING
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s.%(funcName)s l%(lineno)s [%(levelname)s]: %(message)s",
+    # filename='out.txt'
+)
+logger = logging.getLogger(__name__)
 
 
 def process_one_batch(encoder, decoder, batch, corpus, optimizer=None, beam_size=0):
@@ -191,17 +201,17 @@ def load_data(path, corpus):
             for word in tgt_words.split():
                 corpus.dictionary.add_word(word)
 
-        print("previously processed data has only %d examples" % len(src))
-        print("this experiment asked for -1 examples")
+        logger.info("previously processed data has only %d examples" % len(src))
+        logger.info("this experiment asked for -1 examples")
         reprocess_data = input("reprocess data (yes): ")
         if reprocess_data.lower() in ['n', 'no', '0']:
-            print("ok, working with %d examples then..." % len(src))
+            logger.info("ok, working with %d examples then..." % len(src))
             return src, tgt
 
     # count number of lines
     f = open(path, 'r')
     num_lines = sum(1 for _ in f)
-    print("%d lines" % num_lines)
+    logger.info("%d lines" % num_lines)
     f.close()
 
     # get a list of list of strings
@@ -233,7 +243,8 @@ def main():
     ##########################################################################
     # Load dataset
     ##########################################################################
-    print("\nLoading data...")
+    logger.info("")
+    logger.info("Loading data...")
     corpus = Corpus()
     corpus.learn_bpe('../train_data.txt', '../bpe10', 10)
     train_src, train_tgt = load_data('../train_data.txt', corpus)
@@ -243,54 +254,55 @@ def main():
     assert len(test_src) == len(test_tgt)
 
     vocab_size = len(corpus.dictionary)
-    print("vocab:", vocab_size)
+    logger.info("vocab: %d" % vocab_size)
 
     num_train_batches = len(train_src) // batch_size
     num_test_batches = len(test_src) // batch_size
 
     '''
-    print("train sentences:")
+    logger.info("train sentences:")
     for src, tgt in zip(train_src, train_tgt):
-        print('src:', src)
-        print('tgt:', tgt)
-    print("train idx:")
+        logger.info('src: %s' % src)
+        logger.info('tgt: %s' % tgt)
+    logger.info("train idx:")
     for src, tgt in zip(corpus.to_idx(train_src), corpus.to_idx(train_tgt)):
-        print('src:', src)
-        print('tgt:', tgt)
+        logger.info('src: %s' % src)
+        logger.info('tgt: %s' % tgt)
     '''
-    print("number of training pairs:", len(train_src))
-    print("train batches:", num_train_batches)
+    logger.info("number of training pairs: %d" % len(train_src))
+    logger.info("train batches: %d" % num_train_batches)
     '''
-    print("test sentences:")
+    logger.info("test sentences:")
     for src, tgt in zip(test_src, test_tgt):
-        print('src:', src)
-        print('tgt:', tgt)
-    print("test idx:")
+        logger.info('src: %s' % src)
+        logger.info('tgt: %s' % tgt)
+    logger.info("test idx:")
     for src, tgt in zip(corpus.to_idx(test_src), corpus.to_idx(test_tgt)):
-        print('src:', src)
-        print('tgt:', tgt)
+        logger.info('src: %s' % src)
+        logger.info('tgt: %s' % tgt)
     '''
-    print("number of testing pairs:", len(test_src))
-    print("test batches:", num_test_batches)
+    logger.info("number of testing pairs: %d" % len(test_src))
+    logger.info("test batches: %d" % num_test_batches)
 
     # Save dictionary for generation
-    print("saving dictionary...")
+    logger.info("saving dictionary...")
     with open('seq2seq_vocab.pt', 'wb') as f:
         pkl.dump(corpus.dictionary, f)
-    print("done.")
+    logger.info("done.")
 
     ##########################################################################
     # Build the model
     ##########################################################################
-    print("\nBuilding model...")
+    logger.info("")
+    logger.info("Building model...")
 
     encoder, decoder = build_seq2seq(len(corpus.dictionary))
 
     encoder.to(device)
     decoder.to(device)
 
-    print("encoder:", encoder)
-    print("decoder:", decoder)
+    logger.info("encoder: %s" % encoder)
+    logger.info("decoder: %s" % decoder)
 
     optimizer = torch.optim.Adam(
         list(encoder.parameters()) +
@@ -307,8 +319,9 @@ def main():
     ##########################################################################
     # Training code
     ##########################################################################
-    print("\nStart training...")
-    print("-" * 100)
+    logger.info("")
+    logger.info("Start training...")
+    logger.info("-" * 100)
 
     best_valid_loss = float('inf')
     best_epoch = 0
@@ -342,7 +355,7 @@ def main():
 
             if n_batch % log_interval == 0:
                 elapsed = time.time() - start_time
-                print("| epoch %3d | %3d/%3d batches | ms/batch %4f | train loss %6f | train ppl %6f" % (
+                logger.info("| epoch %3d | %3d/%3d batches | ms/batch %4f | train loss %6f | train ppl %6f" % (
                     epoch, n_batch+1, num_train_batches, elapsed*1000 / log_interval,
                     loss, np.exp(loss)
                 ))
@@ -395,7 +408,7 @@ def main():
         valid_loss /= iters
         scheduler.step(valid_loss)
 
-        print("|-epoch %3d-| took %4f s | train loss %6f | train ppl %6f | valid loss %6f | valid ppl %6f" % (
+        logger.info("|-epoch %3d-| took %4f s | train loss %6f | train ppl %6f | valid loss %6f | valid ppl %6f" % (
             epoch, time.time() - epoch_start_time, train_loss, np.exp(train_loss), valid_loss, np.exp(valid_loss)
         ))
 
@@ -404,21 +417,21 @@ def main():
             best_epoch = epoch
             best_valid_loss = valid_loss
             patience = 5  # reset patience
-            print("| Improved! | patience is %3d | Saving model parameters..." % patience)
+            logger.info("| Improved! | patience is %3d | Saving model parameters..." % patience)
             torch.save(encoder.state_dict(), "seq2seq_encoder.pt")
             torch.save(decoder.state_dict(), "seq2seq_decoder.pt")
         else:
             patience -= 1
-            print("| Worsened! | patience is %3d" % patience)
+            logger.info("| Worsened! | patience is %3d" % patience)
 
-        print("-" * 100)
+        logger.info("-" * 100)
         if patience <= 0:
             break
 
     ##########################################################################
     # Testing code
     ##########################################################################
-    print("Testing begins...")
+    logger.info("Testing begins...")
 
     with open("seq2seq_encoder.pt", "rb") as f:
         encoder.load_state_dict(torch.load(f))
@@ -471,7 +484,7 @@ def main():
             f.write('gold: ' + g_sent + '\n')
             f.write('pred: ' + p_sent + '\n\n')
 
-    print("seq2seq_test_predictions.txt is saved.")
+    logger.info("seq2seq_test_predictions.txt is saved.")
 
 
 if __name__ == '__main__':
@@ -489,11 +502,13 @@ if __name__ == '__main__':
     if torch.cuda.is_available():
         device = torch.device('cuda')
         device_idx = torch.cuda.current_device()
-        print("\nUsing GPU", torch.cuda.get_device_name(device_idx))
+        logger.info("")
+        logger.info("Using GPU: %s" % torch.cuda.get_device_name(device_idx))
         # Set the random seed manually for reproducibility.
         torch.cuda.manual_seed(seed)
     else:
         device = torch.device('cpu')
-        print("\nNo GPU available :(")
+        logger.info("")
+        logger.info("No GPU available :(")
 
     main()

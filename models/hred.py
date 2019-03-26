@@ -3,6 +3,7 @@
 # Paper : https://arxiv.org/abs/1507.04808
 """
 import random
+import logging
 
 import torch
 import torch.nn as nn
@@ -10,6 +11,9 @@ import torch.nn.functional as F
 import torch.utils.data as data
 
 from MyMLToolbox.utils import AttentionModule, split_list
+
+
+logger = logging.getLogger(__name__)
 
 
 class HREDEncoder(nn.Module):
@@ -601,8 +605,8 @@ def build_hred(vocab_size, args=None):
         if args:
             if dec_context_size != args.dec_hidden_size:
             # NOTE: dec_context_size is the same as cont_enc_hidden_size but adapted for bidirectional possibility
-                print(
-                    "WARNING: when using dot product attention, "
+                logger.warning(
+                    "when using dot product attention, "
                     "the hidden size of the decoder (%d) must be the same as "
                     "the size of the context vector (%d). Setting it to %d" % (
                     args.dec_hidden_size, dec_context_size, dec_context_size
@@ -613,8 +617,8 @@ def build_hred(vocab_size, args=None):
         else:
             if dec_context_size != default_params['dec_hidden_size']:
             # NOTE: dec_context_size is the same as cont_enc_hidden_size but adapted for bidirectional possibility
-                print(
-                    "WARNING: when using dot product attention, "
+                logger.warning(
+                    "when using dot product attention, "
                     "the hidden size of the decoder (%d) must be the same as "
                     "the size of the context vector (%d). Setting it to %d" % (
                     default_params['dec_hidden_size'], dec_context_size, dec_context_size
@@ -629,8 +633,8 @@ def build_hred(vocab_size, args=None):
     ###
     if args:
         if args.cont_enc_n_layers != args.dec_n_layers:
-            print(
-                "WARNING: the number of layers in the decoder (%d) must be the same as "
+            logger.warning(
+                "the number of layers in the decoder (%d) must be the same as "
                 "the number of layers in the context encoder (%d). Setting it to %d" % (
                 args.dec_n_layers, args.cont_enc_n_layers, args.cont_enc_n_layers)
             )
@@ -639,8 +643,8 @@ def build_hred(vocab_size, args=None):
             dec_n_layers = args.dec_n_layers
     else:
         if default_params['cont_enc_n_layers'] != default_params['dec_n_layers']:
-            print(
-                "WARNING: the number of layers in the decoder (%d) must be the same as "
+            logger.warning(
+                "the number of layers in the decoder (%d) must be the same as "
                 "the number of layers in the context encoder (%d). Setting it to %d" % (
                     default_params['dec_n_layers'], default_params['cont_enc_n_layers'],
                     default_params['cont_enc_n_layers'])
@@ -653,8 +657,8 @@ def build_hred(vocab_size, args=None):
     ###
     if args:
         if args.cont_enc_rnn_type != args.dec_rnn_type:
-            print(
-                "WARNING: the rnn_type of the decoder (%s) must be the same as "
+            logger.warning(
+                "the rnn_type of the decoder (%s) must be the same as "
                 "the rnn_type of the context encoder (%s). Setting it to %s" % (
                     args.dec_rnn_type, args.cont_enc_rnn_type, args.cont_enc_rnn_type)
             )
@@ -663,8 +667,8 @@ def build_hred(vocab_size, args=None):
             dec_rnn_type = args.dec_rnn_type
     else:
         if default_params['cont_enc_rnn_type'] != default_params['dec_rnn_type']:
-            print(
-                "WARNING: the rnn_type of the decoder (%s) must be the same as "
+            logger.warning(
+                "the rnn_type of the decoder (%s) must be the same as "
                 "the rnn_type of the context encoder (%s). Setting it to %s" % (
                     default_params['dec_rnn_type'], default_params['cont_enc_rnn_type'],
                     default_params['cont_enc_rnn_type'])
@@ -823,8 +827,8 @@ def build_seq2seq(vocab_size, args=None):
         if args:
             if dec_context_size != args.dec_hidden_size:
             # NOTE: dec_context_size is the same as sent_enc_hidden_size but adapted for bidirectional possibility
-                print(
-                    "WARNING: when using dot product attention, "
+                logger.warning(
+                    "when using dot product attention, "
                     "the hidden size of the decoder (%d) must be the same as "
                     "the size of the context vector (%d). Setting it to %d" % (
                     args.dec_hidden_size, dec_context_size, dec_context_size
@@ -835,8 +839,8 @@ def build_seq2seq(vocab_size, args=None):
         else:
             if dec_context_size != default_params['dec_hidden_size']:
             # NOTE: dec_context_size is the same as sent_enc_hidden_size but adapted for bidirectional possibility
-                print(
-                    "WARNING: when using dot product attention, "
+                logger.warning(
+                    "when using dot product attention, "
                     "the hidden size of the decoder (%d) must be the same as "
                     "the size of the context vector (%d). Setting it to %d" % (
                     default_params['dec_hidden_size'], dec_context_size, dec_context_size
@@ -851,8 +855,8 @@ def build_seq2seq(vocab_size, args=None):
     ###
     if args:
         if args.sent_enc_n_layers != args.dec_n_layers:
-            print(
-                "WARNING: the number of layers in the decoder (%d) must be the same as "
+            logger.warning(
+                "the number of layers in the decoder (%d) must be the same as "
                 "the number of layers in the encoder (%d). Setting it to %d" % (
                 args.dec_n_layers, args.sent_enc_n_layers, args.sent_enc_n_layers)
             )
@@ -861,8 +865,8 @@ def build_seq2seq(vocab_size, args=None):
             dec_n_layers = args.dec_n_layers
     else:
         if default_params['sent_enc_n_layers'] != default_params['dec_n_layers']:
-            print(
-                "WARNING: the number of layers in the decoder (%d) must be the same as "
+            logger.warning(
+                "the number of layers in the decoder (%d) must be the same as "
                 "the number of layers in the encoder (%d). Setting it to %d" % (
                     default_params['dec_n_layers'], default_params['sent_enc_n_layers'],
                     default_params['sent_enc_n_layers'])
@@ -875,8 +879,8 @@ def build_seq2seq(vocab_size, args=None):
     ###
     if args:
         if args.sent_enc_rnn_type != args.dec_rnn_type:
-            print(
-                "WARNING: the rnn_type of the decoder (%s) must be the same as "
+            logger.warning(
+                "the rnn_type of the decoder (%s) must be the same as "
                 "the rnn_type of the encoder (%s). Setting it to %s" % (
                     args.dec_rnn_type, args.sent_enc_rnn_type, args.sent_enc_rnn_type)
             )
@@ -885,8 +889,8 @@ def build_seq2seq(vocab_size, args=None):
             dec_rnn_type = args.dec_rnn_type
     else:
         if default_params['sent_enc_rnn_type'] != default_params['dec_rnn_type']:
-            print(
-                "WARNING: the rnn_type of the decoder (%s) must be the same as "
+            logger.warning(
+                "the rnn_type of the decoder (%s) must be the same as "
                 "the rnn_type of the encoder (%s). Setting it to %s" % (
                     default_params['dec_rnn_type'], default_params['sent_enc_rnn_type'],
                     default_params['sent_enc_rnn_type'])
