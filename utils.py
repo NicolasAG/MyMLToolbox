@@ -513,7 +513,7 @@ class Corpus(object):
             if len(data) % 10000 == 0:
                 print("#", end='')
 
-            if 0 < max_n_examples < len(data):
+            if 0 < max_n_examples <= len(data):
                 break
 
         logger.info("")
@@ -617,7 +617,6 @@ class Corpus(object):
             ))
 
         return src, tgt
-
 
     def get_copydata_from_array(self, json_path, max_n_examples=-1, max_seq_length=-1,
                                 debug=False, add_to_dict=True):
