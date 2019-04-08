@@ -286,6 +286,14 @@ def main():
     assert len(train_src) == len(train_tgt)
     assert len(test_src) == len(test_tgt)
 
+    # initialize batches
+    train_batches, _ = hred_minibatch_generator(
+        (train_src, train_tgt), corpus, batch_size, shuffle=True
+    )
+    test_batches, _ = hred_minibatch_generator(
+        (test_src, test_tgt), corpus, batch_size, shuffle=False
+    )
+
     vocab_size = len(corpus.dictionary)
     logger.info("vocab:", vocab_size)
 
@@ -366,11 +374,6 @@ def main():
     for epoch in range(1, max_epoch+1):
         epoch_start_time = time.time()
 
-        # initialize batches
-        train_batches, _ = hred_minibatch_generator(
-            (train_src, train_tgt), corpus, batch_size, shuffle=True
-        )
-
         # Turn on training mode which enables dropout
         sentence_encoder.train()
         context_encoder.train()
@@ -403,11 +406,6 @@ def main():
                 start_time = time.time()
 
         train_loss = train_loss / iters
-
-        # initialize batches
-        test_batches, _ = hred_minibatch_generator(
-            (test_src, test_tgt), corpus, batch_size, shuffle=False
-        )
 
         # Turn on evaluation mode which disables dropout
         sentence_encoder.eval()
