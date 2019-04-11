@@ -137,15 +137,15 @@ def process_one_batch(encoder, decoder, batch, corpus, optimizer=None, beam_size
 
         # decode one token at a time
         for step in range(max_tgt):
-
-            # decoder takes in: x        ~(bs)
-            #                   h_tm1    ~(n_layers, bs, hidden_size)
-            #                   context  ~(n_layers, bs, n_dir*size)
-            #                   enc_outs ~(bs, max_src_len, n_dir*size)
-            decoder_out, decoder_ht, attn_weights = decoder(decoder_in, decoder_ht, encoder_ht, encoder_out)
-            # and returns: decoder_out  ~(bs, vocab_size)
-            #              decoder_ht   ~(n_layers, bs, hidden_size)
-            #              attn_weights ~(bs, seq=1, max_src_len)
+            # decoder takes in: x        ~(bs=1)
+            #                   h_tm1    ~(n_layers, bs=1, hidden_size)
+            #                   extra_i  ~(bs, seq=1, embedding_size) -- optional
+            #                   extra_h  ~(n_layers, bs=1, n_dir*size) -- optional
+            #                   enc_outs ~(bs=1, enc_seq, n_dir*size) -- optional
+            decoder_out, decoder_ht, attn_weights = decoder(decoder_in, decoder_ht, extra_h=encoder_ht, enc_outs=encoder_out)
+            # and returns: dec_out      ~(bs=1, vocab_size)
+            #              dec_hid      ~(n_layers, bs=1, hidden_size)
+            #              attn_weights ~(bs=1, seq=1, enc_seq)
 
             if attn_weights is not None:
                 decoder_attentions[:, :attn_weights.size(2), step] += attn_weights.squeeze(1).cpu()

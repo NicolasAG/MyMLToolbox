@@ -287,28 +287,38 @@ class HREDDecoder(nn.Module):
     ``
     from: https://arxiv.org/pdf/1811.02549.pdf
     """
-    def __init__(self, rnn_type, vocab_size, embedding_size, hidden_size, context_size,
-                 n_layers=1, dropout=0.1, alpha=1.0):
+    def __init__(self, rnn_type, vocab_size, embedding_size, hidden_size,
+                 extra_inp_dim=0, extra_hid_dim=0, n_layers=1, dropout=0.1, alpha=1.0):
         """
         :param rnn_type: 'lstm' or 'gru'
         :param vocab_size: number of tokens in vocabulary
         :param embedding_size: embedding size of all tokens
         :param hidden_size: size of RNN hidden state
-        :param context_size: size of the previously encoded context
+        :param extra_inp_dim: size of the previously encoded extra information to concat to decoder input vector
+        :param extra_hid_dim: size of the previously encoded extra information to concat to decoder hidden vector
         :param alpha: Boltzmann Temperature term (set to 1 during training, change during inference)
         """
         super(HREDDecoder, self).__init__()
 
-        self.rnn_type     = rnn_type
-        self.hidden_size  = hidden_size
-        self.n_layers     = n_layers
-        self.alpha        = alpha
-        self.vocab_size   = vocab_size  # attribute used in test_hred.step()
+        self.rnn_type    = rnn_type
+        self.hidden_size = hidden_size
+        self.extra_h     = extra_hid_dim
+        self.extra_i     = extra_inp_dim
+        self.n_layers    = n_layers
+        self.alpha       = alpha
+        self.vocab_size  = vocab_size  # attribute used in test_hred.step()
 
-        self.embedding      = nn.Embedding(vocab_size, embedding_size)
-        self.dropout        = nn.Dropout(dropout)
-        self.context_to_hid = nn.Linear(self.hidden_size + context_size, self.hidden_size)
-        self.output         = nn.Linear(self.hidden_size, vocab_size)
+        self.embedding    = nn.Embedding(vocab_size, embedding_size)
+        self.dropout      = nn.Dropout(dropout)
+        if self.extra_i > 0:
+            self.extra_to_inp = nn.Linear(self.extra_i + embedding_size, embedding_size)
+        else:
+            self.extra_to_inp = None
+        if self.extra_h > 0:
+            self.extra_to_hid = nn.Linear(self.extra_h + self.hidden_size, self.hidden_size)
+        else:
+            self.extra_to_hid = None
+        self.output       = nn.Linear(self.hidden_size, vocab_size)
 
         if self.rnn_type == 'gru':
             self.rnn = nn.GRU(
@@ -337,11 +347,13 @@ class HREDDecoder(nn.Module):
 
         self._init_weights()
 
-    def forward(self, x, h_tm1, context, enc_outs):
+    def forward(self, x, h_tm1, extra_i=None, extra_h=None, enc_outs=None):
         """
         :param x: batch of input tokens - LongTensor ~(bs)
         :param h_tm1: previous hidden state ~(n_layers, bs, hidden_size)
-        :param context: context vector of all encoder layers at the last time step
+        :param extra_i: any other information
+                        ~(bs, seq=1, embedding_size)
+        :param extra_h: context vector of all encoder layers at the last time step or any other information
                         ~(n_layers, bs, n_dir*size)
         :param enc_outs: not used in the classic HRED decoder
 
@@ -351,17 +363,22 @@ class HREDDecoder(nn.Module):
         """
         x = self.embedding(x).view(x.size(0), 1, -1)  # ~(bs, seq=1, embedding_size)
         x = self.dropout(x)
+        if extra_i is not None:
+            assert self.extra_to_inp is not None
+            x = torch.tanh(self.extra_to_inp(torch.cat((x, extra_i), dim=2)))
 
         # decompose lstm unit into hidden state & cell state
         if self.rnn_type == 'lstm':
-            if h_tm1 is not None:
-                h_tm1, c_tm1 = h_tm1
-            else:
-                c_tm1 = None
+            h_tm1, c_tm1 = h_tm1
 
-        # concatenate the context and project it to hidden_size
-        decoder_hidden = torch.cat((h_tm1, context), 2)                   # ~(n_layers, bs, hidden_size + context_size)
-        decoder_hidden = torch.tanh(self.context_to_hid(decoder_hidden))  # ~(n_layers, bs, hidden_size)
+        if extra_h is not None:
+            # concatenate the context and project it to hidden_size
+            assert self.extra_to_hid is not None
+            decoder_hidden = torch.cat((h_tm1, extra_h), dim=2)             # ~(n_layers, bs, hidden_size + context_size)
+            decoder_hidden = torch.tanh(self.extra_to_hid(decoder_hidden))  # ~(n_layers, bs, hidden_size)
+        else:
+            decoder_hidden = h_tm1
+        del h_tm1
 
         # feed in input & new context to RNN
         if self.rnn_type == 'lstm':
@@ -424,30 +441,35 @@ class AttentionDecoder(HREDDecoder):
     These are then multiplied by the encoder output vectors to create a weighted combination.
     """
     def __init__(self, rnn_type, vocab_size, embedding_size, hidden_size, encoder_size,
-                 context_size, n_layers=1, dropout=0.1, attn_mode='general', alpha=1.0):
+                 extra_inp_dim=0, extra_hid_dim=0, n_layers=1, dropout=0.1, attn_mode='general', alpha=1.0):
         """
+        extra_inp_dim=0, extra_hid_dim=0,
+
         :param rnn_type: 'lstm' or 'gru'
         :param vocab_size: number of tokens in vocabulary
         :param embedding_size: embedding size of all tokens
         :param hidden_size: size of RNN hidden state
         :param encoder_size: size of the encoder outputs (used for computing attention weights)
-        :param context_size: size of the encoder outputs + extra info such as title encoding if needed
+        :param extra_inp_dim: size of the previously encoded extra information to concat to decoder input vector
+        :param extra_hid_dim: size of the encoder outputs + extra info such as title encoding if needed
                 (used for passing context encoding & extra info to the hidden cell of the decoder)
         :param attn_mode: 'general', 'dot', or 'concat'
         :param alpha: Boltzmann Temperature term (set to 1 during training, change during inference)
         """
         super(AttentionDecoder, self).__init__(
-            rnn_type, vocab_size, embedding_size, hidden_size, context_size, n_layers, dropout, alpha
+            rnn_type, vocab_size, embedding_size, hidden_size, extra_inp_dim, extra_hid_dim, n_layers, dropout, alpha
         )
         # Attention decoder extra: attention layer & attention concatenation
         self.attn = AttentionModule(hidden_size, encoder_size, attn_mode)
         self.attn_enc_to_hid = nn.Linear(self.hidden_size + encoder_size, self.hidden_size)
 
-    def forward(self, x, h_tm1, context, enc_outs):
+    def forward(self, x, h_tm1, extra_i=None, extra_h=None, enc_outs=None):
         """
         :param x: batch of input tokens - LongTensor ~(bs)
         :param h_tm1: previous hidden state ~(n_layers, bs, hidden_size)
-        :param context: context vector of all layers at the last time step
+        :param extra_i: any extra information
+                        ~(bs, seq=1, embedding_size)
+        :param extra_h: context vector of all layers at the last time step or any other information
                         ~(n_layers, bs, n_dir*size)
         :param enc_outs: encoder output vectors of the last layer at each time step
                          ~(bs, max_src_len, n_dir*size)
@@ -459,21 +481,24 @@ class AttentionDecoder(HREDDecoder):
         # Note: this is called at each decoding step, one token at a time...
         x = self.embedding(x).view(x.size(0), 1, -1)  # ~(bs, seq=1, embedding_size)
         x = self.dropout(x)
+        if extra_i is not None:
+            assert self.extra_to_inp is not None
+            x = torch.tanh(self.extra_to_inp(torch.cat((x, extra_i), dim=2)))
 
         ####
         # Pass input x into the RNN
         ####
         # decompose lstm unit into hidden state & cell state
         if self.rnn_type == 'lstm':
-            if h_tm1 is not None:
-                h_tm1, c_tm1 = h_tm1
-            else:
-                c_tm1 = None
+            h_tm1, c_tm1 = h_tm1
 
-        # concatenate the context and project it to hidden_size
-        decoder_hidden = torch.cat((h_tm1, context), 2)                   # ~(n_layers, bs, hidden_size + context_size)
-        decoder_hidden = torch.tanh(self.context_to_hid(decoder_hidden))  # ~(n_layers, bs, hidden_size)
-
+        if extra_h is not None:
+            # concatenate the context and project it to hidden_size
+            assert self.extra_to_hid is not None
+            decoder_hidden = torch.cat((h_tm1, extra_h), dim=2)             # ~(n_layers, bs, hidden_size + context_size)
+            decoder_hidden = torch.tanh(self.extra_to_hid(decoder_hidden))  # ~(n_layers, bs, hidden_size)
+        else:
+            decoder_hidden = h_tm1
         del h_tm1
 
         # feed in input & new context to RNN
@@ -486,7 +511,6 @@ class AttentionDecoder(HREDDecoder):
             dec_out, h_t = self.rnn(x, decoder_hidden)
             # out ~(bs, seq=1, hidden_size)
             # h_t ~(n_layers, bs, hidden_size)
-
         del decoder_hidden
 
         ####
@@ -684,7 +708,8 @@ def build_hred(vocab_size, args=None):
             embedding_size=args.embedding_size if args else default_params['embedding_size'],
             hidden_size=dec_hidden_size,
             encoder_size=dec_context_size,
-            context_size=dec_context_size,
+            extra_inp_dim=0,                 # do NOT add anything to all inputs of the decoder
+            extra_hid_dim=dec_context_size,  # add encoder output to hidden state of decoder
             n_layers=dec_n_layers,
             dropout=args.dec_dropout if args else default_params['dec_dropout'],
             attn_mode=attention,
@@ -696,7 +721,8 @@ def build_hred(vocab_size, args=None):
             vocab_size=vocab_size,
             embedding_size=args.embedding_size if args else default_params['embedding_size'],
             hidden_size=dec_hidden_size,
-            context_size=dec_context_size,
+            extra_inp_dim=0,                 # do NOT add anything to all inputs of the decoder
+            extra_hid_dim=dec_context_size,  # add encoder output to hidden state of decoder
             n_layers=dec_n_layers,
             dropout=args.dec_dropout if args else default_params['dec_dropout'],
             alpha=args.dec_alpha if args else default_params['dec_alpha']
@@ -907,7 +933,8 @@ def build_seq2seq(vocab_size, args=None):
             embedding_size=args.embedding_size if args else default_params['embedding_size'],
             hidden_size=dec_hidden_size,
             encoder_size=dec_context_size,
-            context_size=dec_context_size,
+            extra_inp_dim=0,                 # do NOT add anything to all inputs of the decoder
+            extra_hid_dim=dec_context_size,  # add encoder output to hidden state of decoder
             n_layers=dec_n_layers,
             dropout=args.dec_dropout if args else default_params['dec_dropout'],
             attn_mode=attention,
@@ -919,7 +946,8 @@ def build_seq2seq(vocab_size, args=None):
             vocab_size=vocab_size,
             embedding_size=args.embedding_size if args else default_params['embedding_size'],
             hidden_size=dec_hidden_size,
-            context_size=dec_context_size,
+            extra_inp_dim=0,                 # do NOT add anything to all inputs of the decoder
+            extra_hid_dim=dec_context_size,  # add encoder output to hidden state of decoder
             n_layers=dec_n_layers,
             dropout=args.dec_dropout if args else default_params['dec_dropout'],
             alpha=args.dec_alpha if args else default_params['dec_alpha']

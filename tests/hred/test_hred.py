@@ -168,15 +168,15 @@ def process_one_batch(sent_enc, cont_enc, decoder, batch, corpus, optimizer=None
 
         # decode the target sentence
         for step in range(max_tgt):
-
-            # decoder takes in: x        ~(bs)
-            #                   h_tm1    ~(n_layers, bs, hidden_size)
-            #                   context  ~(n_layers, bs, n_dir*size)
-            #                   enc_outs ~(bs, enc_seq, n_dir*size)
-            dec_out, dec_hid, attn_weights = decoder(dec_input, dec_hid, cont_enc_ht, cont_enc_out)
-            # and returns: dec_out      ~(bs, vocab_size)
-            #              dec_hid      ~(n_layers, bs, hidden_size)
-            #              attn_weights ~(bs, seq=1, enc_seq)
+            # decoder takes in: x        ~(bs=1)
+            #                   h_tm1    ~(n_layers, bs=1, hidden_size)
+            #                   extra_i  ~(bs, seq=1, embedding_size) -- optional
+            #                   extra_h  ~(n_layers, bs=1, n_dir*size) -- optional
+            #                   enc_outs ~(bs=1, enc_seq, n_dir*size) -- optional
+            dec_out, dec_hid, attn_weights = decoder(dec_input, dec_hid, extra_h=cont_enc_ht, enc_outs=cont_enc_out)
+            # and returns: dec_out      ~(bs=1, vocab_size)
+            #              dec_hid      ~(n_layers, bs=1, hidden_size)
+            #              attn_weights ~(bs=1, seq=1, enc_seq)
 
             if attn_weights is not None:
                 decoder_attentions[:, :attn_weights.size(2), step] += attn_weights.squeeze(1).cpu()

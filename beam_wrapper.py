@@ -174,9 +174,10 @@ class BSWrapper(object):
 
                 # decoder takes in: x        ~(bs=1)
                 #                   h_tm1    ~(n_layers, bs=1, hidden_size)
-                #                   context  ~(n_layers, bs=1, n_dir*size)
-                #                   enc_outs ~(bs=1, enc_seq, n_dir*size)
-                dec_out, dec_hid, attn_weights = self.decoder(dec_input, dec_hid, enc_ht, enc_out)
+                #                   extra_i  ~(bs, seq=1, embedding_size) -- optional
+                #                   extra_h  ~(n_layers, bs=1, n_dir*size) -- optional
+                #                   enc_outs ~(bs=1, enc_seq, n_dir*size) -- optional
+                dec_out, dec_hid, attn_weights = self.decoder(dec_input, dec_hid, extra_h=enc_ht, enc_outs=enc_out)
                 # and returns: dec_out      ~(bs=1, vocab_size)
                 #              dec_hid      ~(n_layers, bs=1, hidden_size)
                 #              attn_weights ~(bs=1, seq=1, enc_seq)
