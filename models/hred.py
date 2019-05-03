@@ -568,7 +568,6 @@ default_params = {
 
 
 def build_hred(vocab_size, args=None):
-
     # Get context RNN input size
     if args:
         if args.sent_enc_bidirectional:
@@ -840,7 +839,6 @@ def build_seq2seq(vocab_size, args=None):
     """
     No context encoder
     """
-
     encoder = SentenceEncoder(
         rnn_type=args.sent_enc_rnn_type if args else default_params['sent_enc_rnn_type'],
         vocab_size=vocab_size,
