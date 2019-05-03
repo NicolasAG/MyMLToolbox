@@ -295,7 +295,7 @@ def main():
     )
 
     vocab_size = len(corpus.dictionary)
-    logger.info("vocab:", vocab_size)
+    logger.info("vocab: %d" % vocab_size)
 
     num_train_batches = len(train_src) // batch_size
     num_test_batches = len(test_src) // batch_size

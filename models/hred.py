@@ -551,6 +551,8 @@ default_params = {
     'cont_enc_bidirectional': True,
     'cont_enc_dropout': 0.1,
     # decoder
+    'dec_extra_h': True,
+    'dec_extra_i': False,
     'dec_rnn_type': 'lstm',
     'dec_hidden_size': 300,
     'dec_n_layers': 1,
@@ -610,44 +612,71 @@ def build_hred(vocab_size, args=None):
         attention = default_params['dec_attn_mode']
     ###
     # Get context encoder size
+    # - used to compute ATTN weights
+    # - used to define the size of the extra information to pass to the decoder
     ###
     if args:
         if args.cont_enc_bidirectional:
-            dec_context_size = args.cont_enc_hidden_size * 2
+            cont_enc_hidden_size = args.cont_enc_hidden_size * 2
         else:
-            dec_context_size = args.cont_enc_hidden_size
+            cont_enc_hidden_size = args.cont_enc_hidden_size
     else:
         if default_params['cont_enc_bidirectional']:
-            dec_context_size = default_params['cont_enc_hidden_size'] * 2
+            cont_enc_hidden_size = default_params['cont_enc_hidden_size'] * 2
         else:
-            dec_context_size = default_params['cont_enc_hidden_size']
+            cont_enc_hidden_size = default_params['cont_enc_hidden_size']
+    ###
+    # define extra info sizes
+    ###
+    if args:
+        # size of extra info to give to decoder hidden state
+        if args.dec_extra_h:
+            extra_h_size = cont_enc_hidden_size
+        else:
+            extra_h_size = 0
+        # size of extra info to give to decoder inputs
+        if args.dec_extra_i:
+            extra_i_size = cont_enc_hidden_size
+        else:
+            extra_i_size = 0
+    else:
+        # size of extra info to give to decoder hidden state
+        if default_params['dec_extra_h']:
+            extra_h_size = cont_enc_hidden_size
+        else:
+            extra_h_size = 0
+        # size of extra info to give to decoder inputs
+        if default_params['dec_extra_i']:
+            extra_i_size = cont_enc_hidden_size
+        else:
+            extra_i_size = 0
     ###
     # check hidden sizes for dot product attention
     ###
     if attention is not None and attention.strip().lower() == 'dot':
         # hidden size of context encoder & decoder must be the same
         if args:
-            if dec_context_size != args.dec_hidden_size:
-            # NOTE: dec_context_size is the same as cont_enc_hidden_size but adapted for bidirectional possibility
+            if cont_enc_hidden_size != args.dec_hidden_size:
+                # hidden size of context encoder & decoder must be the same
                 logger.warning(
                     "when using dot product attention, "
                     "the hidden size of the decoder (%d) must be the same as "
-                    "the size of the context vector (%d). Setting it to %d" % (
-                    args.dec_hidden_size, dec_context_size, dec_context_size
+                    "the size of the context encoder vector (%d). Setting it to %d" % (
+                        args.dec_hidden_size, cont_enc_hidden_size, cont_enc_hidden_size
                 ))
-                dec_hidden_size = dec_context_size
+                dec_hidden_size = cont_enc_hidden_size
             else:
                 dec_hidden_size = args.dec_hidden_size
         else:
-            if dec_context_size != default_params['dec_hidden_size']:
-            # NOTE: dec_context_size is the same as cont_enc_hidden_size but adapted for bidirectional possibility
+            if cont_enc_hidden_size != default_params['dec_hidden_size']:
+                # hidden size of context encoder & decoder must be the same
                 logger.warning(
                     "when using dot product attention, "
                     "the hidden size of the decoder (%d) must be the same as "
-                    "the size of the context vector (%d). Setting it to %d" % (
-                    default_params['dec_hidden_size'], dec_context_size, dec_context_size
+                    "the size of the context encoder vector (%d). Setting it to %d" % (
+                        default_params['dec_hidden_size'], cont_enc_hidden_size, cont_enc_hidden_size
                 ))
-                dec_hidden_size = dec_context_size
+                dec_hidden_size = cont_enc_hidden_size
             else:
                 dec_hidden_size = default_params['dec_hidden_size']
     else:
@@ -660,7 +689,7 @@ def build_hred(vocab_size, args=None):
             logger.warning(
                 "the number of layers in the decoder (%d) must be the same as "
                 "the number of layers in the context encoder (%d). Setting it to %d" % (
-                args.dec_n_layers, args.cont_enc_n_layers, args.cont_enc_n_layers)
+                    args.dec_n_layers, args.cont_enc_n_layers, args.cont_enc_n_layers)
             )
             dec_n_layers = args.cont_enc_n_layers
         else:
@@ -707,9 +736,9 @@ def build_hred(vocab_size, args=None):
             vocab_size=vocab_size,
             embedding_size=args.embedding_size if args else default_params['embedding_size'],
             hidden_size=dec_hidden_size,
-            encoder_size=dec_context_size,
-            extra_inp_dim=0,                 # do NOT add anything to all inputs of the decoder
-            extra_hid_dim=dec_context_size,  # add encoder output to hidden state of decoder
+            encoder_size=cont_enc_hidden_size,  # used to compute attn weights
+            extra_inp_dim=extra_i_size,  # size of extra info to pass to decoder inputs
+            extra_hid_dim=extra_h_size,  # size of extra info to pass to decoder hidden states
             n_layers=dec_n_layers,
             dropout=args.dec_dropout if args else default_params['dec_dropout'],
             attn_mode=attention,
@@ -721,8 +750,8 @@ def build_hred(vocab_size, args=None):
             vocab_size=vocab_size,
             embedding_size=args.embedding_size if args else default_params['embedding_size'],
             hidden_size=dec_hidden_size,
-            extra_inp_dim=0,                 # do NOT add anything to all inputs of the decoder
-            extra_hid_dim=dec_context_size,  # add encoder output to hidden state of decoder
+            extra_inp_dim=extra_i_size,  # size of extra info to pass to decoder inputs
+            extra_hid_dim=extra_h_size,  # size of extra info to pass to decoder hidden states
             n_layers=dec_n_layers,
             dropout=args.dec_dropout if args else default_params['dec_dropout'],
             alpha=args.dec_alpha if args else default_params['dec_alpha']
@@ -830,49 +859,76 @@ def build_seq2seq(vocab_size, args=None):
     else:
         attention = default_params['dec_attn_mode']
     ###
-    # Get encoder context size
+    # Get context encoder size
+    # - used to compute ATTN weights
+    # - used to define the size of the extra information to pass to the decoder
     ###
     if args:
         if args.sent_enc_bidirectional:
-            dec_context_size = args.sent_enc_hidden_size * 2
+            enc_hidden_size = args.sent_enc_hidden_size * 2  # encoder is used to compute ATTN weights
         else:
-            dec_context_size = args.sent_enc_hidden_size
+            enc_hidden_size = args.sent_enc_hidden_size
         if args.gensen:
-            dec_context_size += 2048
+            enc_hidden_size += 2048
     else:
         if default_params['sent_enc_bidirectional']:
-            dec_context_size = default_params['sent_enc_hidden_size'] * 2
+            enc_hidden_size = default_params['sent_enc_hidden_size'] * 2  # encoder is used to compute ATTN weights
         else:
-            dec_context_size = default_params['sent_enc_hidden_size']
+            enc_hidden_size = default_params['sent_enc_hidden_size']
         if default_params['gensen']:
-            dec_context_size += 2048
+            enc_hidden_size += 2048
+    ###
+    # define extra info sizes
+    ###
+    if args:
+        # size of extra info to give to decoder hidden state
+        if args.dec_extra_h:
+            extra_h_size = enc_hidden_size
+        else:
+            extra_h_size = 0
+        # size of extra info to give to decoder inputs
+        if args.dec_extra_i:
+            extra_i_size = enc_hidden_size
+        else:
+            extra_i_size = 0
+    else:
+        # size of extra info to give to decoder hidden state
+        if default_params['dec_extra_h']:
+            extra_h_size = enc_hidden_size
+        else:
+            extra_h_size = 0
+        # size of extra info to give to decoder inputs
+        if default_params['dec_extra_i']:
+            extra_i_size = enc_hidden_size
+        else:
+            extra_i_size = 0
     ###
     # check hidden sizes for dot product attention
     ###
     if attention is not None and attention.strip().lower() == 'dot':
         # hidden size of encoder & decoder must be the same
         if args:
-            if dec_context_size != args.dec_hidden_size:
-            # NOTE: dec_context_size is the same as sent_enc_hidden_size but adapted for bidirectional possibility
+            if enc_hidden_size != args.dec_hidden_size:
+                # NOTE: enc_hidden_size is the same as sent_enc_hidden_size but adapted for bidirectional possibility
                 logger.warning(
                     "when using dot product attention, "
                     "the hidden size of the decoder (%d) must be the same as "
-                    "the size of the context vector (%d). Setting it to %d" % (
-                    args.dec_hidden_size, dec_context_size, dec_context_size
+                    "the size of the encoder (%d). Setting it to %d" % (
+                        args.dec_hidden_size, enc_hidden_size, enc_hidden_size
                 ))
-                dec_hidden_size = dec_context_size
+                dec_hidden_size = enc_hidden_size
             else:
                 dec_hidden_size = args.dec_hidden_size
         else:
-            if dec_context_size != default_params['dec_hidden_size']:
-            # NOTE: dec_context_size is the same as sent_enc_hidden_size but adapted for bidirectional possibility
+            if enc_hidden_size != default_params['dec_hidden_size']:
+                # NOTE: enc_hidden_size is the same as sent_enc_hidden_size but adapted for bidirectional possibility
                 logger.warning(
                     "when using dot product attention, "
                     "the hidden size of the decoder (%d) must be the same as "
-                    "the size of the context vector (%d). Setting it to %d" % (
-                    default_params['dec_hidden_size'], dec_context_size, dec_context_size
+                    "the size of the encoder (%d). Setting it to %d" % (
+                        default_params['dec_hidden_size'], enc_hidden_size, enc_hidden_size
                 ))
-                dec_hidden_size = dec_context_size
+                dec_hidden_size = enc_hidden_size
             else:
                 dec_hidden_size = default_params['dec_hidden_size']
     else:
@@ -932,9 +988,9 @@ def build_seq2seq(vocab_size, args=None):
             vocab_size=vocab_size,
             embedding_size=args.embedding_size if args else default_params['embedding_size'],
             hidden_size=dec_hidden_size,
-            encoder_size=dec_context_size,
-            extra_inp_dim=0,                 # do NOT add anything to all inputs of the decoder
-            extra_hid_dim=dec_context_size,  # add encoder output to hidden state of decoder
+            encoder_size=enc_hidden_size,  # used to compute attn weights
+            extra_inp_dim=extra_i_size,  # size of extra info to pass to decoder inputs
+            extra_hid_dim=extra_h_size,  # size of extra info to pass to decoder hidden states
             n_layers=dec_n_layers,
             dropout=args.dec_dropout if args else default_params['dec_dropout'],
             attn_mode=attention,
@@ -946,8 +1002,8 @@ def build_seq2seq(vocab_size, args=None):
             vocab_size=vocab_size,
             embedding_size=args.embedding_size if args else default_params['embedding_size'],
             hidden_size=dec_hidden_size,
-            extra_inp_dim=0,                 # do NOT add anything to all inputs of the decoder
-            extra_hid_dim=dec_context_size,  # add encoder output to hidden state of decoder
+            extra_inp_dim=extra_i_size,  # size of extra info to pass to decoder inputs
+            extra_hid_dim=extra_h_size,  # size of extra info to pass to decoder hidden states
             n_layers=dec_n_layers,
             dropout=args.dec_dropout if args else default_params['dec_dropout'],
             alpha=args.dec_alpha if args else default_params['dec_alpha']
