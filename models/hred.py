@@ -352,10 +352,10 @@ class HREDDecoder(nn.Module):
         :param x: batch of input tokens - LongTensor ~(bs)
         :param h_tm1: previous hidden state ~(n_layers, bs, hidden_size)
         :param extra_i: any other information
-                        ~(bs, seq=1, embedding_size)
+                        ~(n_layers, bs, size)
         :param extra_h: context vector of all encoder layers at the last time step or any other information
-                        ~(n_layers, bs, n_dir*size)
-        :param enc_outs: not used in the classic HRED decoder
+                        ~(n_layers, bs, size)
+        :param enc_outs: only used for the attention decoder
 
         :return: out          ~(bs, vocab_size)
                  h_t          ~(n_layers, bs, hidden_size)
@@ -365,6 +365,9 @@ class HREDDecoder(nn.Module):
         x = self.dropout(x)
         if extra_i is not None:
             assert self.extra_to_inp is not None
+            # reshape extra_i to fit input space: from (n_layers, bs, size) to (bs, seq=1, size)
+            extra_i = extra_i[-1]           # ~(bs, size)
+            extra_i = extra_i.unsqueeze(1)  # ~(bs, 1, size)
             x = torch.tanh(self.extra_to_inp(torch.cat((x, extra_i), dim=2)))
 
         # decompose lstm unit into hidden state & cell state
@@ -468,9 +471,9 @@ class AttentionDecoder(HREDDecoder):
         :param x: batch of input tokens - LongTensor ~(bs)
         :param h_tm1: previous hidden state ~(n_layers, bs, hidden_size)
         :param extra_i: any extra information
-                        ~(bs, seq=1, embedding_size)
+                        ~(n_layers, bs, size)
         :param extra_h: context vector of all layers at the last time step or any other information
-                        ~(n_layers, bs, n_dir*size)
+                        ~(n_layers, bs, size)
         :param enc_outs: encoder output vectors of the last layer at each time step
                          ~(bs, max_src_len, n_dir*size)
 
@@ -483,6 +486,9 @@ class AttentionDecoder(HREDDecoder):
         x = self.dropout(x)
         if extra_i is not None:
             assert self.extra_to_inp is not None
+            # reshape extra_i to fit input space: from (n_layers, bs, size) to (bs, seq=1, size)
+            extra_i = extra_i[-1]           # ~(bs, size)
+            extra_i = extra_i.unsqueeze(1)  # ~(bs, 1, size)
             x = torch.tanh(self.extra_to_inp(torch.cat((x, extra_i), dim=2)))
 
         ####

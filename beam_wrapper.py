@@ -77,7 +77,7 @@ def create_initial_beam(decoder_state, i, enc_ht, enc_out):
 
 class BSWrapper(object):
     def __init__(self, decoder, decoder_state, enc_ht, batch_size, max_len, beam_size,
-                 corpus, enc_out=None, reverse=False, avoid_repeat=-1):
+                 corpus, enc_out=None, reverse=False, avoid_repeat=-1, extra_h=True, extra_i=False):
         """
         :param decoder: decoder rnn
         :param decoder_state: hidden state from decoder rnn ~(n_layers, bs, hidden_size)
@@ -89,6 +89,8 @@ class BSWrapper(object):
         :param enc_out: outputs of the encoder - used for attentive decoder ~(bs, max_enc_len, hidden_size)
         :param reverse: generate sentences from last word to the first
         :param avoid_repeat: hack the beam to avoid repeating the same n-gram in the same sentence
+        :param extra_h: condition the decoder at its hidden states
+        :param extra_i: condition the decoder at its inputs
         """
         self.decoder = decoder
         self.corpus = corpus
@@ -96,6 +98,9 @@ class BSWrapper(object):
         self.beam_size = beam_size
         self.batch_size = batch_size
         self.avoid_repeat = avoid_repeat
+
+        self.extra_h = extra_h
+        self.extra_i = extra_i
 
         if reverse:
             self.start_token = self.corpus.eos_tag
@@ -172,15 +177,16 @@ class BSWrapper(object):
 
                 # evaluate next step
 
-                # decoder takes in: x        ~(bs=1)
-                #                   h_tm1    ~(n_layers, bs=1, hidden_size)
-                #                   extra_i  ~(bs, seq=1, embedding_size) -- optional
-                #                   extra_h  ~(n_layers, bs=1, n_dir*size) -- optional
-                #                   enc_outs ~(bs=1, enc_seq, n_dir*size) -- optional
-                dec_out, dec_hid, attn_weights = self.decoder(dec_input, dec_hid, extra_h=enc_ht, enc_outs=enc_out)
-                # and returns: dec_out      ~(bs=1, vocab_size)
-                #              dec_hid      ~(n_layers, bs=1, hidden_size)
-                #              attn_weights ~(bs=1, seq=1, enc_seq)
+                # decoder takes in:
+                dec_out, dec_hid, attn_weights = self.decoder(
+                    dec_input,  # x                              ~(bs=1)
+                    dec_hid,    # h_tm1                          ~(n_layers, bs=1, hidden_size)
+                    extra_i=enc_ht if self.extra_i else None,  # ~(n_layers, bs=1, size) -- optional
+                    extra_h=enc_ht if self.extra_h else None,  # ~(n_layers, bs=1, size) -- optional
+                    enc_outs=enc_out  # enc_outs                 ~(bs=1, enc_seq, n_dir*size) -- for attention
+                )  # and returns: dec_out      ~(bs=1, vocab_size)
+                #                 dec_hid      ~(n_layers, bs=1, hidden_size)
+                #                 attn_weights ~(bs=1, seq=1, enc_seq)
 
                 # reshape tensor (remove batch_size=1)
                 log_p = functional.log_softmax(dec_out, dim=1)
