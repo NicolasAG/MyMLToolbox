@@ -76,11 +76,10 @@ def create_initial_beam(decoder_state, i, enc_ht, enc_out):
 
 
 class BSWrapper(object):
-    def __init__(self, decoder, decoder_state, enc_ht, batch_size, max_len, beam_size,
+    def __init__(self, decoder, enc_ht, batch_size, max_len, beam_size,
                  corpus, enc_out=None, reverse=False, avoid_repeat=-1, extra_h=True, extra_i=False):
         """
         :param decoder: decoder rnn
-        :param decoder_state: hidden state from decoder rnn ~(n_layers, bs, hidden_size)
         :param enc_ht: last hidden states of the encoder - used in all hred decoders ~(n_layers, bs, hidden_size)
         :param batch_size: number of sentences to decode at the same time
         :param max_len: max number of tokens in a sentence
@@ -109,8 +108,9 @@ class BSWrapper(object):
             self.start_token = self.corpus.sos_tag
             self.final_token = self.corpus.eos_tag
 
+        decoder_h0 = decoder.init_hidden(self.batch_size)  # ~(n_layers, bs, hidden_size)
         self.beam = [
-            create_initial_beam(decoder_state, i, enc_ht, enc_out)
+            create_initial_beam(decoder_h0, i, enc_ht, enc_out)
             for i in range(self.batch_size)
         ]  # ~(bs)
 
