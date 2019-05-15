@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as data
 
-from MyMLToolbox.utils import AttentionModule, split_list
+from MyMLToolbox.utils import AttentionModule, GaussianNoise, split_list
 
 
 logger = logging.getLogger(__name__)
@@ -287,8 +287,8 @@ class HREDDecoder(nn.Module):
     ``
     from: https://arxiv.org/pdf/1811.02549.pdf
     """
-    def __init__(self, rnn_type, vocab_size, embedding_size, hidden_size,
-                 extra_inp_dim=0, extra_hid_dim=0, n_layers=1, dropout=0.1, alpha=1.0):
+    def __init__(self, rnn_type, vocab_size, embedding_size, hidden_size, extra_inp_dim=0, extra_hid_dim=0,
+                 n_layers=1, h_dropout=0.0, i_dropout=0.0, i_noise=0.0, alpha=1.0):
         """
         :param rnn_type: 'lstm' or 'gru'
         :param vocab_size: number of tokens in vocabulary
@@ -296,28 +296,28 @@ class HREDDecoder(nn.Module):
         :param hidden_size: size of RNN hidden state
         :param extra_inp_dim: size of the previously encoded extra information to concat to decoder input vector
         :param extra_hid_dim: size of the previously encoded extra information to concat to decoder hidden vector
+        :param n_layers: number of stacked rnn layers
+        :param h_dropout: dropout between each rnn layers
+        :param i_dropout: input dropout (on the word embeddings)
+        :param i_noise: gaussian variance of input noise (on the word embedding)
         :param alpha: Boltzmann Temperature term (set to 1 during training, change during inference)
         """
         super(HREDDecoder, self).__init__()
 
-        self.rnn_type    = rnn_type
-        self.hidden_size = hidden_size
-        self.extra_h     = extra_hid_dim
-        self.extra_i     = extra_inp_dim
-        self.n_layers    = n_layers
-        self.alpha       = alpha
-        self.vocab_size  = vocab_size  # attribute used in test_hred.step()
+        self.rnn_type     = rnn_type
+        self.hidden_size  = hidden_size
+        self.extra_h      = extra_hid_dim
+        self.extra_i      = extra_inp_dim
+        self.n_layers     = n_layers
+        self.alpha        = alpha
+        self.vocab_size   = vocab_size  # attribute used in test_hred.step()
 
         self.embedding    = nn.Embedding(vocab_size, embedding_size)
-        self.dropout      = nn.Dropout(dropout)
-        if self.extra_i > 0:
-            self.extra_to_inp = nn.Linear(self.extra_i + embedding_size, embedding_size)
-        else:
-            self.extra_to_inp = None
-        if self.extra_h > 0:
-            self.extra_to_hid = nn.Linear(self.extra_h + self.hidden_size, self.hidden_size)
-        else:
-            self.extra_to_hid = None
+        self.dropout      = nn.Dropout(i_dropout) if i_dropout > 0.0 else None
+        self.noise        = GaussianNoise(i_noise) if i_noise > 0.0 else None
+
+        self.extra_to_inp = nn.Linear(self.extra_i + embedding_size, embedding_size) if extra_inp_dim > 0 else None
+        self.extra_to_hid = nn.Linear(self.extra_h + self.hidden_size, self.hidden_size) if extra_hid_dim > 0 else None
         self.output       = nn.Linear(self.hidden_size, vocab_size)
 
         if self.rnn_type == 'gru':
@@ -326,8 +326,8 @@ class HREDDecoder(nn.Module):
                 hidden_size=self.hidden_size,
                 num_layers=self.n_layers,
                 bias=True,
-                batch_first=True,  # input and output tensors are provided as (batch, seq, feature)
-                dropout=dropout,  # add Dropout on the outputs of each layer except the last one
+                batch_first=True,   # input and output tensors are provided as (batch, seq, feature)
+                dropout=h_dropout,  # add Dropout on the outputs of each layer except the last one
                 bidirectional=False
             )
 
@@ -337,8 +337,8 @@ class HREDDecoder(nn.Module):
                 hidden_size=self.hidden_size,
                 num_layers=self.n_layers,
                 bias=True,
-                batch_first=True,  # input and output tensors are provided as (batch, seq, feature)
-                dropout=dropout,  # add Dropout on the outputs of each layer except the last one
+                batch_first=True,   # input and output tensors are provided as (batch, seq, feature)
+                dropout=h_dropout,  # add Dropout on the outputs of each layer except the last one
                 bidirectional=False
             )
 
@@ -362,7 +362,10 @@ class HREDDecoder(nn.Module):
                  None
         """
         x = self.embedding(x).view(x.size(0), 1, -1)  # ~(bs, seq=1, embedding_size)
-        x = self.dropout(x)
+        if self.noise is not None:
+            x = self.noise(x)
+        if self.dropout is not None:
+            x = self.dropout(x)
         if extra_i is not None:
             assert self.extra_to_inp is not None
             # reshape extra_i to fit input space: from (n_layers, bs, size) to (bs, seq=1, size)
@@ -444,23 +447,27 @@ class AttentionDecoder(HREDDecoder):
     These are then multiplied by the encoder output vectors to create a weighted combination.
     """
     def __init__(self, rnn_type, vocab_size, embedding_size, hidden_size, encoder_size,
-                 extra_inp_dim=0, extra_hid_dim=0, n_layers=1, dropout=0.1, attn_mode='general', alpha=1.0):
+                 extra_inp_dim=0, extra_hid_dim=0,
+                 n_layers=1, h_dropout=0.0, i_dropout=0.0, i_noise=0.0,
+                 attn_mode='general', alpha=1.0):
         """
-        extra_inp_dim=0, extra_hid_dim=0,
-
         :param rnn_type: 'lstm' or 'gru'
         :param vocab_size: number of tokens in vocabulary
         :param embedding_size: embedding size of all tokens
         :param hidden_size: size of RNN hidden state
         :param encoder_size: size of the encoder outputs (used for computing attention weights)
         :param extra_inp_dim: size of the previously encoded extra information to concat to decoder input vector
-        :param extra_hid_dim: size of the encoder outputs + extra info such as title encoding if needed
-                (used for passing context encoding & extra info to the hidden cell of the decoder)
+        :param extra_hid_dim: size of the previously encoded extra information to concat to decoder hidden vector
+        :param n_layers: number of stacked rnn layers
+        :param h_dropout: dropout between each rnn layers
+        :param i_dropout: input dropout (on the word embeddings)
+        :param i_noise: gaussian variance of input noise (on the word embedding)
         :param attn_mode: 'general', 'dot', or 'concat'
         :param alpha: Boltzmann Temperature term (set to 1 during training, change during inference)
         """
         super(AttentionDecoder, self).__init__(
-            rnn_type, vocab_size, embedding_size, hidden_size, extra_inp_dim, extra_hid_dim, n_layers, dropout, alpha
+            rnn_type, vocab_size, embedding_size, hidden_size, extra_inp_dim, extra_hid_dim,
+            n_layers, h_dropout, i_dropout, i_noise, alpha
         )
         # Attention decoder extra: attention layer & attention concatenation
         self.attn = AttentionModule(hidden_size, encoder_size, attn_mode)
@@ -483,7 +490,10 @@ class AttentionDecoder(HREDDecoder):
         """
         # Note: this is called at each decoding step, one token at a time...
         x = self.embedding(x).view(x.size(0), 1, -1)  # ~(bs, seq=1, embedding_size)
-        x = self.dropout(x)
+        if self.noise is not None:
+            x = self.noise(x)
+        if self.dropout is not None:
+            x = self.dropout(x)
         if extra_i is not None:
             assert self.extra_to_inp is not None
             # reshape extra_i to fit input space: from (n_layers, bs, size) to (bs, seq=1, size)
@@ -745,7 +755,9 @@ def build_hred(vocab_size, args=None):
             extra_inp_dim=extra_i_size,  # size of extra info to pass to decoder inputs
             extra_hid_dim=extra_h_size,  # size of extra info to pass to decoder hidden states
             n_layers=dec_n_layers,
-            dropout=args.dec_dropout if args else default_params['dec_dropout'],
+            h_dropout=args.dec_h_dropout if args else default_params['dec_dropout'],
+            i_dropout=args.dec_i_dropout if args else default_params['dec_dropout'],
+            i_noise=args.dec_i_noise if args else 0.0,
             attn_mode=attention,
             alpha=args.dec_alpha if args else default_params['dec_alpha']
         )
@@ -758,7 +770,9 @@ def build_hred(vocab_size, args=None):
             extra_inp_dim=extra_i_size,  # size of extra info to pass to decoder inputs
             extra_hid_dim=extra_h_size,  # size of extra info to pass to decoder hidden states
             n_layers=dec_n_layers,
-            dropout=args.dec_dropout if args else default_params['dec_dropout'],
+            h_dropout=args.dec_h_dropout if args else default_params['dec_dropout'],
+            i_dropout=args.dec_i_dropout if args else default_params['dec_dropout'],
+            i_noise=args.dec_i_noise if args else 0.0,
             alpha=args.dec_alpha if args else default_params['dec_alpha']
         )
 
@@ -996,7 +1010,9 @@ def build_seq2seq(vocab_size, args=None):
             extra_inp_dim=extra_i_size,  # size of extra info to pass to decoder inputs
             extra_hid_dim=extra_h_size,  # size of extra info to pass to decoder hidden states
             n_layers=dec_n_layers,
-            dropout=args.dec_dropout if args else default_params['dec_dropout'],
+            h_dropout=args.dec_h_dropout if args else default_params['dec_dropout'],
+            i_dropout=args.dec_i_dropout if args else default_params['dec_dropout'],
+            i_noise=args.dec_i_noise if args else 0.0,
             attn_mode=attention,
             alpha=args.dec_alpha if args else default_params['dec_alpha']
         )
@@ -1009,7 +1025,9 @@ def build_seq2seq(vocab_size, args=None):
             extra_inp_dim=extra_i_size,  # size of extra info to pass to decoder inputs
             extra_hid_dim=extra_h_size,  # size of extra info to pass to decoder hidden states
             n_layers=dec_n_layers,
-            dropout=args.dec_dropout if args else default_params['dec_dropout'],
+            h_dropout=args.dec_h_dropout if args else default_params['dec_dropout'],
+            i_dropout=args.dec_i_dropout if args else default_params['dec_dropout'],
+            i_noise=args.dec_i_noise if args else 0.0,
             alpha=args.dec_alpha if args else default_params['dec_alpha']
         )
 

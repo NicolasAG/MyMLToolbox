@@ -173,7 +173,7 @@ class BSWrapper(object):
                 else:
                     dec_hid = dec_hid.contiguous()
                 enc_ht = beam_token.encoder_ht.contiguous()
-                enc_out = beam_token.encoder_out.contiguous()
+                enc_out = beam_token.encoder_out.contiguous() if beam_token.encoder_out is not None else None
 
                 # evaluate next step
 
