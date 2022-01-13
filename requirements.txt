@@ -10,7 +10,7 @@ cmudict==0.4.2
 comet-git-pure==0.19.9
 comet-ml==1.0.44
 configobj==5.0.6
-cryptography==3.2
+cryptography==3.3.2
 cycler==0.10.0
 cymem==2.0.2
 cytoolz==0.9.0.1
