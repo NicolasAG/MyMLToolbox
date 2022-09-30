@@ -21,7 +21,7 @@ gensim==3.7.0
 h5py==2.9.0
 idna==2.7
 jmespath==0.9.3
-joblib==0.13.2
+joblib==1.2.0
 jsonschema==2.6.0
 kiwisolver==1.0.1
 matplotlib==3.0.0
